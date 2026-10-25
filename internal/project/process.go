@@ -20,6 +20,8 @@ type RunOptions struct {
 	Timeout time.Duration
 	Post    bool
 	Exclude []string
+	Include []string
+	Tags    []string
 	FullGit bool
 	Stdout  io.Writer
 	Stderr  io.Writer
@@ -88,7 +90,7 @@ func Protect(ctx context.Context, r backend.Repository, o RunOptions) (RunResult
 	if err != nil {
 		return result, err
 	}
-	backup := backend.BackupOptions{Sources: []string{dir}, Label: "veyra:pre-operation", Exclude: o.Exclude, FullGit: o.FullGit}
+	backup := backend.BackupOptions{Sources: []string{dir}, Label: "veyra:pre-operation", Exclude: o.Exclude, Include: o.Include, Tags: o.Tags, FullGit: o.FullGit}
 	id, err := r.CheckpointID(ctx, backup)
 	if err != nil {
 		return result, fmt.Errorf("command not started: checkpoint failed: %w", err)

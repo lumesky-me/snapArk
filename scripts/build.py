@@ -34,13 +34,15 @@ def main():
             subprocess.run([go, "build", "-trimpath", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
             for file in ("LICENSE", "README.md", "SECURITY.md"):
                 shutil.copyfile(ROOT / file, stage / file)
+            shutil.copytree(ROOT / "docs", stage / "docs")
             shutil.copyfile(goroot / "LICENSE", stage / "GO-LICENSE")
             shutil.copyfile(ROOT / "scripts/install-restic.py", stage / "install-restic.py")
             if system == "windows":
                 archive = args.out / (name + ".zip")
                 with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
-                    for file in sorted(stage.iterdir()):
-                        z.write(file, f"{name}/{file.name}")
+                    for file in sorted(stage.rglob("*")):
+                        if file.is_file():
+                            z.write(file, f"{name}/{file.relative_to(stage).as_posix()}")
             else:
                 archive = args.out / (name + ".tar.gz")
                 with tarfile.open(archive, "w:gz") as tar:

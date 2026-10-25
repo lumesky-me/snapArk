@@ -26,6 +26,9 @@ type Repository struct {
 	Err          io.Writer
 	JSON         bool
 	Quiet        bool
+	ReadOnly     bool
+	SnapshotTag  string
+	SnapshotHost string
 }
 
 // Environment removes inherited backend configuration and credential bindings.
@@ -88,6 +91,9 @@ func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 	}
 	repoPath, _ := filepath.Abs(r.Path)
 	base := []string{"--repo", repoPath, "--no-cache"}
+	if r.ReadOnly {
+		base = append(base, "--no-lock")
+	}
 	if r.PasswordFile != "" {
 		base = append(base, "--password-file", r.PasswordFile)
 	}
@@ -136,15 +142,23 @@ func (r Repository) Decode(ctx context.Context, v any, args ...string) error {
 }
 
 type Snapshot struct {
-	ID    string   `json:"id"`
-	Paths []string `json:"paths"`
-	Tags  []string `json:"tags"`
-	Time  string   `json:"time"`
+	ID       string   `json:"id"`
+	Hostname string   `json:"hostname"`
+	Paths    []string `json:"paths"`
+	Tags     []string `json:"tags"`
+	Time     string   `json:"time"`
 }
 
 func (r Repository) Snapshots(ctx context.Context) ([]Snapshot, error) {
 	var s []Snapshot
-	err := r.Decode(ctx, &s, "snapshots")
+	args := []string{"snapshots"}
+	if r.SnapshotTag != "" {
+		args = append(args, "--tag", r.SnapshotTag)
+	}
+	if r.SnapshotHost != "" {
+		args = append(args, "--host", r.SnapshotHost)
+	}
+	err := r.Decode(ctx, &s, args...)
 	return s, err
 }
 

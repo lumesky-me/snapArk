@@ -117,6 +117,9 @@ func TestBackupRecovery(t *testing.T) {
 	if e = r.Restore(ctx, RestoreOptions{Snapshot: first.ID, Target: target}); e != nil {
 		t.Fatal(e)
 	}
+	if _, markerErr := os.Stat(target + ".veyra-incomplete.json"); !os.IsNotExist(markerErr) {
+		t.Fatal("successful restore left an incomplete marker")
+	}
 	// Restic preserves the source's absolute hierarchy beneath the restore root.
 	var large, unicode, link, longPath, emptyDir string
 	e = filepath.WalkDir(target, func(p string, d os.DirEntry, e error) error {
@@ -303,5 +306,58 @@ func TestMultipleSourcesAndExclusions(t *testing.T) {
 	}
 	if _, e = os.Stat(filepath.Join(target, "cache.tmp")); !os.IsNotExist(e) {
 		t.Fatal("excluded file restored")
+	}
+}
+
+func TestLiteralIncludeRecovery(t *testing.T) {
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "keep.txt"), []byte("selected data"))
+	mustWrite(t, filepath.Join(src, "other.txt"), []byte("not selected"))
+	options := BackupOptions{Sources: []string{src}, Include: []string{"missing", "keep.txt"}}
+	plan, e := r.Plan(ctx, options)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if plan.EstimatedFiles != 1 {
+		t.Fatalf("included count: %+v", plan)
+	}
+	if e = r.Backup(ctx, options); e != nil {
+		t.Fatal(e)
+	}
+	target := filepath.Join(filepath.Dir(src), "included-recovery")
+	if e = r.Restore(ctx, RestoreOptions{Snapshot: "latest", Target: target}); e != nil {
+		t.Fatal(e)
+	}
+	if hashFile(t, filepath.Join(target, "keep.txt")) != sha256.Sum256([]byte("selected data")) {
+		t.Fatal("included file did not restore exactly")
+	}
+	if _, e = os.Stat(filepath.Join(target, "other.txt")); !os.IsNotExist(e) {
+		t.Fatal("unselected file restored")
+	}
+	options.Include = []string{"../password"}
+	if e = r.Backup(ctx, options); e == nil {
+		t.Fatal("include traversal accepted")
+	}
+	options.Include = []string{"missing"}
+	if e = r.Backup(ctx, options); e == nil {
+		t.Fatal("empty include selection accepted")
+	}
+}
+
+func TestIncludeTempDirectoryInsideSource(t *testing.T) {
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "keep"), []byte("data"))
+	t.Setenv("TMPDIR", src)
+	t.Setenv("TMP", src)
+	t.Setenv("TEMP", src)
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{src}, Include: []string{"keep"}}); e == nil {
+		t.Fatal("temporary include list could be captured by its own backup")
+	}
+	snaps, e := r.Snapshots(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(snaps) != 0 {
+		t.Fatal("unsafe include backup created a snapshot")
 	}
 }

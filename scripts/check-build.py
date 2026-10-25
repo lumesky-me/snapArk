@@ -2,6 +2,7 @@
 """Verify build checksums and execute the native archived binary."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import platform
 import subprocess
@@ -31,7 +32,7 @@ def main():
             native = archive
     if native is None:
         raise ValueError("no archive for this native platform")
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(prefix="veyra package 日本語 ") as tmp:
         if native.suffix == ".zip":
             with zipfile.ZipFile(native) as z:
                 z.extractall(tmp)
@@ -39,13 +40,41 @@ def main():
             with tarfile.open(native) as tar:
                 tar.extractall(tmp, filter="data")
         root = Path(tmp) / target
-        for name in ("LICENSE", "GO-LICENSE", "README.md", "SECURITY.md", "install-restic.py"):
+        for name in ("LICENSE", "GO-LICENSE", "README.md", "SECURITY.md", "install-restic.py", "docs/profiles.md"):
             if not (root / name).is_file():
                 raise ValueError(f"missing distribution file: {name}")
         binary = root / ("veyra.exe" if system == "windows" else "veyra")
         output = subprocess.check_output([str(binary), "version"], text=True)
         if not output.startswith("veyra ") or "requires restic 0.18.1" not in output:
             raise ValueError("unexpected standalone version output")
+        # Exercise the packaged executable outside the checkout, using the pinned
+        # backend installed by CI. No Go command is needed by this workflow.
+        work = Path(tmp)
+        source = work / "project with spaces 日本語"
+        source.mkdir()
+        (source / "file.txt").write_text("recover packaged data", encoding="utf-8")
+        password = work / "password"
+        password.write_text("disposable archive-test password", encoding="utf-8")
+        password.chmod(0o600)
+        repo = work / "backup with spaces"
+        config = work / "settings with spaces" / "profiles.json"
+        def run(*args):
+            return subprocess.check_output([str(binary), *map(str, args)], cwd=work, text=True)
+        run("profile", "add", "--config", config, "--repo", repo, "--source", source, "packaged")
+        run("init", "--repo", repo, "--password-file", password)
+        options = ["--config", config, "--profile", "packaged", "--password-file", password, "--json"]
+        plan = json.loads(run("plan", *options))
+        if plan["estimated_files"] != 1:
+            raise ValueError("packaged backup plan did not find the source file")
+        run("backup", *options)
+        rows = json.loads(run("status", *options))
+        if len(rows) != 1 or rows[0]["state"] != "working":
+            raise ValueError("packaged profile backup not confirmed")
+        restored = work / "recovered"
+        run("restore", *options, "--target", restored, "latest")
+        if (restored / "file.txt").read_text(encoding="utf-8") != "recover packaged data":
+            raise ValueError("packaged recovery contents differ")
+        print("Packaged profiles, planning, backup, status, and recovery verified outside the checkout")
         print(output.strip())
         print("Archive checksums, distribution contents, and native executable verified")
 

@@ -99,6 +99,25 @@ veyra prune --repo /media/backup/veyra                       # preview
 veyra prune --repo /media/backup/veyra --confirm              # reclaim unused data
 ```
 
+## Profiles and daily backups
+
+```sh
+veyra profile add --repo /media/backup/app --source ./app --exclude node_modules --keep-last 10 app
+veyra plan --profile app --password-file /private/backup-password
+veyra backup --profile app --password-file /private/backup-password
+veyra status --password-file /private/backup-password
+veyra doctor --profile app --password-file /private/backup-password
+veyra find --profile app --query main.go --password-file /private/backup-password
+veyra retention --profile app --password-file /private/backup-password
+veyra schedule --profile app --password-file /private/backup-password
+```
+
+Profiles store non-secret settings in your user configuration directory. Retention
+and scheduling are previews by default; neither runs automatically during backup.
+See [profiles and daily use](docs/profiles.md) for scope, confirmation, scheduling,
+configuration recovery, and diagnostic limitations. Protected commands can use a single-source profile with `veyra run --profile app`.
+Only included, non-excluded files are protected.
+
 ## Development
 
 With the installed restic executable on PATH:
@@ -117,7 +136,8 @@ Check the Actions result for the exact commit and platform you use. Benchmarks
 are available with `go test ./internal/project -run '^$' -bench .`.
 
 Build all five distribution archives with `python scripts/build.py`; validate checksums
-and run the native archived executable with `python scripts/check-build.py`. Each includes
+and run the native archived executable with `python scripts/check-build.py`. Verification requires restic on PATH and exercises packaged profile backup/recovery.
+Each includes
 license notices and the verified restic installer; restic itself is installed
 separately. This command prepares files in `dist/` and does not publish a release.
 

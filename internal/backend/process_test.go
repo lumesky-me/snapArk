@@ -18,6 +18,10 @@ func TestMain(m *testing.M) {
 		mode := filepath.Base(os.Args[2])
 		if strings.HasPrefix(mode, "archive-") {
 			for _, arg := range os.Args[3:] {
+				if arg == "ls" {
+					fmt.Println(`{"type":"dir","path":"/project"}`)
+					os.Exit(0)
+				}
 				if arg == "snapshots" {
 					fmt.Printf(`[{"id":"%s","time":"2026-01-01T00:00:00Z","paths":["/project"]}]`, strings.Repeat("a", 64))
 					os.Exit(0)

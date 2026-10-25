@@ -13,6 +13,8 @@ type summaryWriter struct {
 	buf     []byte
 	ID      string
 	NewData int
+	Files   uint64
+	Bytes   uint64
 }
 
 func (w *summaryWriter) Write(p []byte) (int, error) {
@@ -26,6 +28,8 @@ func (w *summaryWriter) Write(p []byte) (int, error) {
 			Type    string `json:"message_type"`
 			ID      string `json:"snapshot_id"`
 			NewData int    `json:"data_blobs"`
+			Files   uint64 `json:"total_files_processed"`
+			Bytes   uint64 `json:"total_bytes_processed"`
 		}
 		if err := json.Unmarshal(w.buf[:pos], &v); err != nil {
 			return 0, fmt.Errorf("invalid backup output: %w", err)
@@ -33,6 +37,8 @@ func (w *summaryWriter) Write(p []byte) (int, error) {
 		if v.Type == "summary" {
 			w.ID = v.ID
 			w.NewData = v.NewData
+			w.Files = v.Files
+			w.Bytes = v.Bytes
 		}
 		w.buf = w.buf[pos+1:]
 	}

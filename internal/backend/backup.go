@@ -11,6 +11,8 @@ import (
 
 type BackupOptions struct {
 	Sources     []string
+	Include     []string
+	Tags        []string
 	Exclude     []string
 	ExcludeFile string
 	Label       string
@@ -53,6 +55,9 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 			}
 		}
 	}
+	for _, tag := range o.Tags {
+		args = append(args, "--tag", tag)
+	}
 	if o.Label != "" {
 		args = append(args, "--tag", o.Label)
 	}
@@ -69,7 +74,77 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 		args = append(args, "--exclude-file", o.ExcludeFile)
 	}
 	if o.DryRun {
-		args = append(args, "--dry-run")
+		args = append(args, "--dry-run", "--no-lock")
+	}
+	if len(o.Include) > 0 {
+		list, e := os.CreateTemp("", "veyra-includes-*")
+		if e != nil {
+			return e
+		}
+		defer os.Remove(list.Name())
+		listPath, e := Canonical(list.Name())
+		if e != nil {
+			_ = list.Close()
+			return e
+		}
+		for _, source := range o.Sources {
+			base, e := Canonical(source)
+			if e != nil {
+				_ = list.Close()
+				return e
+			}
+			if Within(base, listPath) {
+				_ = list.Close()
+				return errors.New("include-list temporary directory is inside a source; set the OS temporary directory outside sources before retrying")
+			}
+		}
+		count := 0
+		for _, src := range o.Sources {
+			for _, rel := range o.Include {
+				if !filepath.IsLocal(rel) {
+					_ = list.Close()
+					return errors.New("include paths must stay within sources")
+				}
+				selected := filepath.Join(src, rel)
+				resolved, e := Canonical(selected)
+				if e != nil {
+					_ = list.Close()
+					return e
+				}
+				base, e := Canonical(src)
+				if e != nil {
+					_ = list.Close()
+					return e
+				}
+				if !Within(base, resolved) {
+					_ = list.Close()
+					return errors.New("include resolves outside its source")
+				}
+				if _, e = os.Lstat(selected); errors.Is(e, os.ErrNotExist) {
+					continue
+				} else if e != nil {
+					_ = list.Close()
+					return e
+				}
+				abs, e := filepath.Abs(selected)
+				if e != nil {
+					_ = list.Close()
+					return e
+				}
+				if _, e = list.WriteString(abs + "\x00"); e != nil {
+					_ = list.Close()
+					return e
+				}
+				count++
+			}
+		}
+		if e = list.Close(); e != nil {
+			return e
+		}
+		if count == 0 {
+			return errors.New("no include paths exist in the sources")
+		}
+		return r.Execute(ctx, append(args, "--files-from-raw", list.Name())...)
 	}
 	args = append(args, "--")
 	for _, p := range o.Sources {
@@ -96,7 +171,7 @@ func (r Repository) Forget(ctx context.Context, refs []string, confirm bool) err
 	}
 	args := []string{"forget"}
 	if !confirm {
-		args = append(args, "--dry-run")
+		args = append(args, "--dry-run", "--no-lock")
 	}
 	for _, ref := range refs {
 		if ref == "latest" {

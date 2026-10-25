@@ -3,6 +3,7 @@ package backend
 import (
 	"archive/tar"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -167,6 +168,9 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	if o.Target == "" {
 		return errors.New("restore requires --target pointing to a new directory")
 	}
+	if o.DryRun {
+		r.ReadOnly = true
+	}
 	s, err := r.Resolve(ctx, o.Snapshot)
 	if err != nil {
 		return err
@@ -189,6 +193,16 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	root := o.Root
 	if root == "" && len(s.Paths) == 1 {
 		root = snapshotRoot(s.Paths[0])
+		nodes, e := r.Search(ctx, s.ID, root)
+		if e != nil {
+			return e
+		}
+		for _, node := range nodes {
+			if node.Path == root && node.Type != "dir" {
+				root = path.Dir(root)
+				break
+			}
+		}
 	}
 	if root != "" {
 		if !strings.HasPrefix(root, "/") || path.Clean(root) != root || strings.ContainsAny(root, "\\:\x00") {
@@ -211,13 +225,31 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 		return r.Execute(ctx, args...)
 	}
 	// Reserve an empty private root. Do not remove failed restores: data can be recovered.
+	marker := target + ".veyra-incomplete.json"
+	status, e := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if e != nil {
+		return fmt.Errorf("reserve restore status file (inspect any previous attempt): %w", e)
+	}
+	e = json.NewEncoder(status).Encode(map[string]string{"state": "incomplete", "snapshot": s.ID, "target": target})
+	if e == nil {
+		e = status.Sync()
+	}
+	closeErr := status.Close()
+	if e == nil {
+		e = closeErr
+	}
+	if e != nil {
+		_ = os.Remove(marker)
+		return e
+	}
 	if err = os.Mkdir(target, 0700); err != nil {
+		_ = os.Remove(marker)
 		return fmt.Errorf("create target (parent must exist): %w", err)
 	}
 	if err = r.Execute(ctx, args...); err != nil {
 		return fmt.Errorf("partial restore retained at %s: %w", target, err)
 	}
-	return filepath.WalkDir(target, func(p string, d os.DirEntry, e error) error {
+	err = filepath.WalkDir(target, func(p string, d os.DirEntry, e error) error {
 		if e != nil {
 			return e
 		}
@@ -234,6 +266,13 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("restore validation failed; incomplete marker retained at %s: %w", marker, err)
+	}
+	if err = os.Remove(marker); err != nil {
+		return fmt.Errorf("data verified but status marker could not be removed: %w", err)
+	}
+	return nil
 }
 
 // Snapshot source paths belong to the backup host, not necessarily this host.

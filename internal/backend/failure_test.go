@@ -197,6 +197,9 @@ func TestInterruptedRestore(t *testing.T) {
 	if e = <-done; e == nil {
 		t.Fatal("interrupted restore reported success")
 	}
+	if _, markerErr := os.Stat(target + ".veyra-incomplete.json"); markerErr != nil {
+		t.Fatal("interrupted restore has no incomplete marker", markerErr)
+	}
 	if _, e = os.Stat(target); e != nil {
 		t.Fatal("partial restore was discarded")
 	}
