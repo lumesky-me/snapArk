@@ -24,13 +24,15 @@ func TestMain(m *testing.M) {
 				}
 			}
 			archives := map[string][]tar.Header{
-				"archive-parent":      {{Name: "hard", Typeflag: tar.TypeLink, Linkname: ".."}},
-				"archive-traversal":   {{Name: "../outside", Typeflag: tar.TypeReg}},
-				"archive-absolute":    {{Name: "/outside", Typeflag: tar.TypeReg}},
-				"archive-chain":       {{Name: "dir", Typeflag: tar.TypeDir}, {Name: "dir/sub", Typeflag: tar.TypeSymlink, Linkname: ".."}, {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "dir/sub/../../outside"}},
-				"archive-case":        {{Name: "file", Typeflag: tar.TypeReg}, {Name: "FILE", Typeflag: tar.TypeReg}},
-				"archive-alias-child": {{Name: "LINK", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "link/file", Typeflag: tar.TypeReg}},
-				"archive-link-child":  {{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "link/file", Typeflag: tar.TypeReg}},
+				"archive-parent":        {{Name: "hard", Typeflag: tar.TypeLink, Linkname: ".."}},
+				"archive-traversal":     {{Name: "../outside", Typeflag: tar.TypeReg}},
+				"archive-absolute":      {{Name: "/outside", Typeflag: tar.TypeReg}},
+				"archive-chain":         {{Name: "dir", Typeflag: tar.TypeDir}, {Name: "dir/sub", Typeflag: tar.TypeSymlink, Linkname: ".."}, {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "dir/sub/../../outside"}},
+				"archive-case":          {{Name: "file", Typeflag: tar.TypeReg}, {Name: "FILE", Typeflag: tar.TypeReg}},
+				"archive-unicode-case":  {{Name: "Σ", Typeflag: tar.TypeReg}, {Name: "ς", Typeflag: tar.TypeReg}},
+				"archive-unicode-child": {{Name: "Σ", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "ς/file", Typeflag: tar.TypeReg}},
+				"archive-alias-child":   {{Name: "LINK", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "link/file", Typeflag: tar.TypeReg}},
+				"archive-link-child":    {{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "link/file", Typeflag: tar.TypeReg}},
 			}
 			writer := tar.NewWriter(os.Stdout)
 			for _, header := range archives[mode] {
@@ -114,7 +116,7 @@ func TestLatestUsesInstantNotTimestampText(t *testing.T) {
 }
 
 func TestUnsafeArchiveNeverCreatesTarget(t *testing.T) {
-	for _, mode := range []string{"archive-parent", "archive-traversal", "archive-absolute", "archive-chain", "archive-case", "archive-link-child", "archive-alias-child"} {
+	for _, mode := range []string{"archive-parent", "archive-traversal", "archive-absolute", "archive-chain", "archive-case", "archive-link-child", "archive-alias-child", "archive-unicode-case", "archive-unicode-child"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			target := filepath.Join(root, "recovery")

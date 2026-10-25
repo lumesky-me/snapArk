@@ -51,7 +51,8 @@ local attacker racing filesystem operations under the same account.
 
 Preflight validates an authenticated streaming archive before extraction, rejecting
 traversal, absolute or escaping symlinks, nonportable names, case collisions,
-and unsupported special file types. This is deliberately conservative: a valid
+and unsupported special file types. Unicode case aliases are compared conservatively;
+filesystem-specific Unicode normalization and alias behavior are not exhaustively tested. This is deliberately conservative: a valid
 backup with such entries may require manual inspection and recovery using restic.
 Relative symlinks are interpreted inside the selected snapshot root, independent
 of macOS temporary-directory aliases. Restic performs extraction and content

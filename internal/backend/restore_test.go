@@ -17,6 +17,13 @@ func TestSafeNode(t *testing.T) {
 		{"backslash", Node{Type: "file", Path: "/x\\..\\secret"}, false},
 		{"drive", Node{Type: "file", Path: "/C:/file"}, false},
 		{"device", Node{Type: "file", Path: "/NUL.txt"}, false},
+		{"superscript device", Node{Type: "file", Path: "/COM¹.txt"}, false},
+		{"spaced device", Node{Type: "file", Path: "/CON .txt"}, false},
+		{"device link", Node{Type: "symlink", Path: "/link", LinkTarget: "NUL"}, false},
+		{"console device", Node{Type: "file", Path: "/CONOUT$"}, false},
+		{"wildcard", Node{Type: "file", Path: "/wild*card"}, false},
+		{"control", Node{Type: "file", Path: "/line\nfeed"}, false},
+		{"unicode", Node{Type: "file", Path: "/日本語.txt"}, true},
 		{"socket", Node{Type: "socket", Path: "/socket"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,6 +44,7 @@ func TestSymlinkChains(t *testing.T) {
 		{"internal chain", map[string]string{"/dir/a": "../b", "/b": "file"}, true},
 		{"indirect traversal", map[string]string{"/dir/sub": "..", "/link": "dir/sub/../../outside"}, false},
 		{"cycle", map[string]string{"/a": "b", "/b": "a"}, false},
+		{"Unicode alias traversal", map[string]string{"/dir/Σ": "..", "/link": "dir/ς/../../outside"}, false},
 		{"case alias traversal", map[string]string{"/dir/SUB": "..", "/link": "dir/sub/../../outside"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,5 +61,16 @@ func TestSnapshotRootAcrossHosts(t *testing.T) {
 		if got := snapshotRoot(source); got != want {
 			t.Errorf("snapshotRoot(%q)=%q, want %q", source, got, want)
 		}
+	}
+}
+
+func TestUnicodePathKeys(t *testing.T) {
+	for _, pair := range [][2]string{{"/Σ", "/ς"}, {"/S", "/ſ"}, {"/K", "/K"}, {"/DIR/File", "/dir/file"}} {
+		if pathKey(pair[0]) != pathKey(pair[1]) {
+			t.Errorf("missed case aliases %q and %q", pair[0], pair[1])
+		}
+	}
+	if pathKey("/日本語") == pathKey("/file") {
+		t.Fatal("unrelated Unicode names collide")
 	}
 }

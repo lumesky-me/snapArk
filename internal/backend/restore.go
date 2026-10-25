@@ -39,9 +39,22 @@ func SafeNode(n Node) error {
 		}
 	}
 	// Windows also treats these names as devices or alternate data streams.
-	for _, part := range strings.Split(p, "/") {
-		upper := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
-		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" || (len(upper) == 4 && (strings.HasPrefix(upper, "COM") || strings.HasPrefix(upper, "LPT")) && upper[3] >= '1' && upper[3] <= '9') {
+	names := strings.Split(p, "/")
+	if n.Type == "symlink" {
+		for _, part := range strings.Split(n.LinkTarget, "/") {
+			if part != "." && part != ".." {
+				names = append(names, part)
+			}
+		}
+	}
+	for _, part := range names {
+		for _, r := range part {
+			if r < 32 || strings.ContainsRune(`<>"|?*`, r) {
+				return fmt.Errorf("nonportable restore path %q", p)
+			}
+		}
+		upper := strings.ToUpper(strings.TrimRight(strings.SplitN(part, ".", 2)[0], " "))
+		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" || upper == "CONIN$" || upper == "CONOUT$" || reservedPort(upper) || (len(upper) == 4 && (strings.HasPrefix(upper, "COM") || strings.HasPrefix(upper, "LPT")) && upper[3] >= '1' && upper[3] <= '9') {
 			return fmt.Errorf("nonportable restore path %q", p)
 		}
 	}
@@ -91,7 +104,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 			n.Type = "dir"
 		case tar.TypeSymlink:
 			n.Type = "symlink"
-			links[strings.ToLower(n.Path)] = n.LinkTarget
+			links[pathKey(n.Path)] = n.LinkTarget
 		case tar.TypeLink:
 			n.Type = "file"
 			if h.Linkname == "" || h.Linkname == ".." || strings.HasPrefix(h.Linkname, "/") || strings.ContainsAny(h.Linkname, "\\:\x00") || path.Clean(h.Linkname) != h.Linkname || strings.HasPrefix(h.Linkname, "../") {
@@ -107,7 +120,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 			firstErr = e
 			break
 		}
-		folded := strings.ToLower(n.Path)
+		folded := pathKey(n.Path)
 		if prev, ok := seen[folded]; ok {
 			firstErr = fmt.Errorf("duplicate or case-colliding paths: %q and %q", prev, n.Path)
 			break
@@ -117,7 +130,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 	if firstErr == nil {
 		for _, p := range seen {
 			for parent := path.Dir(p); parent != "/" && parent != "."; parent = path.Dir(parent) {
-				if _, ok := links[strings.ToLower(parent)]; ok {
+				if _, ok := links[pathKey(parent)]; ok {
 					firstErr = fmt.Errorf("archive entry below symbolic link: %s", p)
 					break
 				}
@@ -230,4 +243,12 @@ func snapshotRoot(source string) string {
 	}
 
 	return source
+}
+
+func reservedPort(name string) bool {
+	if !strings.HasPrefix(name, "COM") && !strings.HasPrefix(name, "LPT") {
+		return false
+	}
+	suffix := name[3:]
+	return suffix == "¹" || suffix == "²" || suffix == "³"
 }

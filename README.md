@@ -17,7 +17,20 @@ of irreplaceable data. See [security and recovery](SECURITY.md) for limitations.
 
 ## Installation
 
-Install Go 1.23 or later and Python 3, then build from this checkout:
+Downloadable test builds are available under the **Artifacts** section of successful
+[GitHub Actions runs](https://github.com/lumesky-me/veyra/actions). These are
+experimental builds, not official releases. GitHub requires signing in to download
+artifacts. Extract the artifact wrapper, verify the platform archive against its
+`SHA256SUMS` (Linux: `sha256sum -c SHA256SUMS`; macOS:
+`shasum -a 256 -c SHA256SUMS`; Windows:
+`Get-FileHash .\veyra-windows-amd64.zip -Algorithm SHA256` and compare the hash),
+then extract the platform archive. Inside its directory, install the backend with
+`python install-restic.py --dir .` and add that directory to PATH. Use `python3` if your system does not provide a `python` command. No Go compiler
+is needed for these builds. Checksums detect damage; obtain them from the same
+trusted Actions run as the archive.
+
+To build from source, install Go 1.23 or later and Python 3, clone this repository,
+and run these commands from the checkout:
 
 ```sh
 python scripts/install-restic.py --dir ./bin
@@ -100,8 +113,13 @@ go build ./cmd/veyra
 
 Integration tests use disposable repositories; they skip if restic is missing.
 CI installs the pinned backend and runs native Ubuntu, Windows, and macOS tests.
-Native platform support remains provisional until those jobs pass. Benchmarks
+Check the Actions result for the exact commit and platform you use. Benchmarks
 are available with `go test ./internal/project -run '^$' -bench .`.
+
+Build all five distribution archives with `python scripts/build.py`; validate checksums
+and run the native archived executable with `python scripts/check-build.py`. Each includes
+license notices and the verified restic installer; restic itself is installed
+separately. This command prepares files in `dist/` and does not publish a release.
 
 ## License
 
