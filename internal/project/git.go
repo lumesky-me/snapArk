@@ -3,7 +3,6 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,6 +19,7 @@ type GitEntry struct {
 type GitStatus struct {
 	Root    string     `json:"root"`
 	Entries []GitEntry `json:"entries"`
+	Tracked []string   `json:"tracked"`
 }
 
 func Git(ctx context.Context, dir string) (GitStatus, error) {
@@ -56,7 +56,15 @@ func Git(ctx context.Context, dir string) (GitStatus, error) {
 		}
 		s.Entries = append(s.Entries, e)
 	}
+	tracked, err := run("ls-files", "--cached", "-z")
+	if err != nil {
+		return s, err
+	}
+	s.Tracked = []string{}
+	for _, p := range strings.Split(string(tracked), "\x00") {
+		if p != "" {
+			s.Tracked = append(s.Tracked, p)
+		}
+	}
 	return s, nil
 }
-
-func (s GitStatus) Marshal() ([]byte, error) { return json.Marshal(s) }

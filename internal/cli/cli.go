@@ -92,7 +92,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	fs.BoolVar(&r.Quiet, "quiet", false, "suppress normal output")
 	var exclude, include, test stringsFlag
 	var label, target, dir, restoreRoot string
-	var full, dry, confirm, fullGit, post bool
+	var full, dry, confirm, fullGit, post, tracked bool
 	var timeout time.Duration
 	switch cmd {
 	case "backup", "checkpoint":
@@ -112,6 +112,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	case "forget", "prune":
 		fs.BoolVar(&confirm, "confirm", false, "apply destructive operation (default previews only)")
 	case "git":
+		fs.BoolVar(&tracked, "tracked", false, "also list tracked files")
 		fs.StringVar(&dir, "project", ".", "project directory")
 	case "run":
 		fs.StringVar(&dir, "project", ".", "project directory")
@@ -161,8 +162,13 @@ func (a App) Run(ctx context.Context, args []string) int {
 			_ = json.NewEncoder(out).Encode(s)
 		} else {
 			fmt.Fprintln(out, s.Root)
+			if tracked {
+				for _, p := range s.Tracked {
+					fmt.Fprintf(out, "tracked %q\n", p)
+				}
+			}
 			for _, e := range s.Entries {
-				fmt.Fprintf(out, "%s %s\n", e.Status, e.Path)
+				fmt.Fprintf(out, "%s %q\n", e.Status, e.Path)
 			}
 		}
 		return 0
@@ -241,12 +247,15 @@ func (a App) Run(ctx context.Context, args []string) int {
 		protectedRepo.Out = a.Err
 		var result project.RunResult
 		result, err = project.Protect(ctx, protectedRepo, project.RunOptions{Project: dir, Command: positional, Test: test, Timeout: timeout, Post: post, Exclude: exclude, FullGit: fullGit, Stdout: childOut, Stderr: a.Err, Stdin: a.In})
+		if err != nil && result.Error == "" {
+			result.Error = err.Error()
+		}
 		if r.JSON {
 			_ = json.NewEncoder(out).Encode(result)
 		} else {
 			fmt.Fprintf(out, "checkpoint: %s\ncommand exit: %d\n", result.Before, result.ExitCode)
 			for _, c := range result.Changes {
-				fmt.Fprintf(out, "%s %s\n", c.Kind, c.Path)
+				fmt.Fprintf(out, "%s %q\n", c.Kind, c.Path)
 			}
 			if result.TestExitCode != nil {
 				fmt.Fprintf(out, "test exit: %d\n", *result.TestExitCode)

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const Version = "0.18.1"
@@ -164,7 +165,15 @@ func (r Repository) Resolve(ctx context.Context, ref string) (Snapshot, error) {
 	if ref == "latest" && len(matches) > 0 {
 		best := matches[0]
 		for _, v := range matches[1:] {
-			if v.Time > best.Time {
+			vTime, e := time.Parse(time.RFC3339Nano, v.Time)
+			if e != nil {
+				return Snapshot{}, fmt.Errorf("invalid snapshot timestamp: %w", e)
+			}
+			bestTime, e := time.Parse(time.RFC3339Nano, best.Time)
+			if e != nil {
+				return Snapshot{}, fmt.Errorf("invalid snapshot timestamp: %w", e)
+			}
+			if vTime.After(bestTime) {
 				best = v
 			}
 		}

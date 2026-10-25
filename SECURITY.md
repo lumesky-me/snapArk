@@ -62,3 +62,8 @@ ownership errors and unsupported metadata are reported as failures.
 Subprocess cancellation kills the process group on Unix and uses Windows taskkill
 for the process tree. Programs can deliberately detach or escape those mechanisms;
 VEYRA does not provide OS process containment. Ctrl-C cancels ongoing work.
+
+Automatic source-root selection understands Unix paths and Windows drive paths
+independently of the restore host. For UNC snapshots, inspect `veyra files` and
+select an explicit `--root`. Windows symlink creation depends on OS privileges;
+junctions and other reparse-point variants are not exhaustively validated.

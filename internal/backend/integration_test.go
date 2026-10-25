@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,6 +64,14 @@ func TestBackupRecovery(t *testing.T) {
 	}
 	mustWrite(t, filepath.Join(src, "empty"), nil)
 	mustWrite(t, filepath.Join(src, "日本語.txt"), []byte("recover me"))
+	longDir := src
+	for i := 0; i < 5; i++ {
+		longDir = filepath.Join(longDir, strings.Repeat("nested", 10))
+	}
+	if e := os.MkdirAll(longDir, 0700); e != nil {
+		t.Fatal(e)
+	}
+	mustWrite(t, filepath.Join(longDir, "long-path.txt"), []byte("long path content"))
 	if e := os.Mkdir(filepath.Join(src, "empty-dir"), 0700); e != nil {
 		t.Fatal(e)
 	}
@@ -109,7 +118,7 @@ func TestBackupRecovery(t *testing.T) {
 		t.Fatal(e)
 	}
 	// Restic preserves the source's absolute hierarchy beneath the restore root.
-	var large, unicode, link string
+	var large, unicode, link, longPath, emptyDir string
 	e = filepath.WalkDir(target, func(p string, d os.DirEntry, e error) error {
 		if e != nil {
 			return e
@@ -121,11 +130,21 @@ func TestBackupRecovery(t *testing.T) {
 			unicode = p
 		case "link":
 			link = p
+		case "long-path.txt":
+			longPath = p
+		case "empty-dir":
+			emptyDir = p
 		}
 		return nil
 	})
 	if e != nil {
 		t.Fatal(e)
+	}
+	if hashFile(t, longPath) != sha256.Sum256([]byte("long path content")) {
+		t.Fatal("long-path restore differs")
+	}
+	if info, e := os.Stat(emptyDir); e != nil || !info.IsDir() {
+		t.Fatalf("empty directory missing: %v", e)
 	}
 	if hashFile(t, large) != sha256.Sum256(data) {
 		t.Fatal("restored large-file hash mismatch")
@@ -249,5 +268,40 @@ func TestCorruptionDetected(t *testing.T) {
 	}
 	if e = r.Check(ctx, true); e == nil {
 		t.Fatal("missing pack passed full check")
+	}
+}
+
+func TestMultipleSourcesAndExclusions(t *testing.T) {
+	r, src, ctx := fixture(t)
+	other := filepath.Join(filepath.Dir(src), "other")
+	if e := os.Mkdir(other, 0700); e != nil {
+		t.Fatal(e)
+	}
+	mustWrite(t, filepath.Join(src, "keep"), []byte("first"))
+	mustWrite(t, filepath.Join(src, "cache.tmp"), []byte("excluded"))
+	mustWrite(t, filepath.Join(other, "keep"), []byte("second"))
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{src, other}, Exclude: []string{"*.tmp"}, Label: "two-sources"}); e != nil {
+		t.Fatal(e)
+	}
+	s, e := r.Resolve(ctx, "latest")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(s.Paths) != 2 || len(s.Tags) != 1 || s.Tags[0] != "two-sources" {
+		t.Fatalf("snapshot metadata: %+v", s)
+	}
+	target := filepath.Join(filepath.Dir(src), "selected-root")
+	root := filepath.ToSlash(src)
+	if runtime.GOOS == "windows" {
+		root = "/" + strings.ReplaceAll(root, ":", "")
+	}
+	if e = r.Restore(ctx, RestoreOptions{Snapshot: s.ID, Root: root, Target: target}); e != nil {
+		t.Fatal(e)
+	}
+	if hashFile(t, filepath.Join(target, "keep")) != sha256.Sum256([]byte("first")) {
+		t.Fatal("selected source restore differs")
+	}
+	if _, e = os.Stat(filepath.Join(target, "cache.tmp")); !os.IsNotExist(e) {
+		t.Fatal("excluded file restored")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,9 @@ func TestGitStatus(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	if len(s.Tracked) != 1 || s.Tracked[0] != "tracked" {
+		t.Fatalf("tracked files: %v", s.Tracked)
+	}
 	statuses := map[string]string{}
 	for _, v := range s.Entries {
 		statuses[v.Path] = v.Status
@@ -96,5 +100,14 @@ func gitRun(t *testing.T, root string, args ...string) {
 	c := exec.Command("git", append([]string{"-C", root}, args...)...)
 	if out, e := c.CombinedOutput(); e != nil {
 		t.Fatalf("git: %v: %s", e, out)
+	}
+}
+
+func TestReadCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reader := contextReader{ctx: ctx, reader: strings.NewReader("must not be read")}
+	if n, e := reader.Read(make([]byte, 4)); n != 0 || e != context.Canceled {
+		t.Fatalf("canceled read: %d %v", n, e)
 	}
 }

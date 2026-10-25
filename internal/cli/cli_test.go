@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,15 @@ func TestCLIBackupRestore(t *testing.T) {
 		}
 		return out.String()
 	}
+	if e := os.Mkdir(filepath.Join(src, ".git"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(src, ".git", "HEAD"), []byte("private git internals"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(src, ".env.local"), []byte("local-only disposable data"), 0600); e != nil {
+		t.Fatal(e)
+	}
 	run("init")
 	run("checkpoint", src)
 	var snapshots []struct {
@@ -58,7 +68,10 @@ func TestCLIBackupRestore(t *testing.T) {
 	if e := json.Unmarshal([]byte(run("checkpoints")), &snapshots); e != nil || len(snapshots) != 1 {
 		t.Fatalf("snapshots: %+v %v", snapshots, e)
 	}
-	run("files", snapshots[0].ID)
+	listing := run("files", snapshots[0].ID)
+	if strings.Contains(listing, `"name":".git"`) || !strings.Contains(listing, `"name":".env.local"`) {
+		t.Fatalf("checkpoint exclusions differ: %s", listing)
+	}
 	run("verify", "--full")
 	run("stats")
 	target := filepath.Join(root, "recovery")

@@ -56,7 +56,7 @@ func Scan(ctx context.Context, root string) (map[string]Fingerprint, error) {
 				return e
 			}
 			h := sha256.New()
-			_, e = io.Copy(h, f)
+			_, e = io.Copy(h, contextReader{ctx: ctx, reader: f})
 			closeErr := f.Close()
 			if e != nil {
 				return e
@@ -104,4 +104,16 @@ func Compare(before, after map[string]Fingerprint) []Change {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }

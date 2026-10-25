@@ -65,7 +65,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 	reader := tar.NewReader(pipe)
 	var firstErr error
 	seen := make(map[string]string)
-	links := make(map[string]bool)
+	links := make(map[string]string)
 	for {
 		h, e := reader.Next()
 		if e == io.EOF {
@@ -91,10 +91,10 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 			n.Type = "dir"
 		case tar.TypeSymlink:
 			n.Type = "symlink"
-			links[n.Path] = true
+			links[strings.ToLower(n.Path)] = n.LinkTarget
 		case tar.TypeLink:
 			n.Type = "file"
-			if h.Linkname == "" || strings.HasPrefix(h.Linkname, "/") || strings.ContainsAny(h.Linkname, "\\:\x00") || path.Clean(h.Linkname) != h.Linkname || strings.HasPrefix(h.Linkname, "../") {
+			if h.Linkname == "" || h.Linkname == ".." || strings.HasPrefix(h.Linkname, "/") || strings.ContainsAny(h.Linkname, "\\:\x00") || path.Clean(h.Linkname) != h.Linkname || strings.HasPrefix(h.Linkname, "../") {
 				firstErr = errors.New("unsafe hard-link target")
 			}
 		default:
@@ -117,7 +117,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 	if firstErr == nil {
 		for _, p := range seen {
 			for parent := path.Dir(p); parent != "/" && parent != "."; parent = path.Dir(parent) {
-				if links[parent] {
+				if _, ok := links[strings.ToLower(parent)]; ok {
 					firstErr = fmt.Errorf("archive entry below symbolic link: %s", p)
 					break
 				}
@@ -126,6 +126,9 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 				break
 			}
 		}
+	}
+	if firstErr == nil {
+		firstErr = validateLinks(links)
 	}
 	if firstErr != nil {
 		_ = c.Process.Kill()
@@ -172,11 +175,7 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	ref := s.ID
 	root := o.Root
 	if root == "" && len(s.Paths) == 1 {
-		root = filepath.ToSlash(s.Paths[0])
-		root = strings.ReplaceAll(root, ":", "")
-		if !strings.HasPrefix(root, "/") {
-			root = "/" + root
-		}
+		root = snapshotRoot(s.Paths[0])
 	}
 	if root != "" {
 		if !strings.HasPrefix(root, "/") || path.Clean(root) != root || strings.ContainsAny(root, "\\:\x00") {
@@ -222,4 +221,13 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 		}
 		return nil
 	})
+}
+
+// Snapshot source paths belong to the backup host, not necessarily this host.
+func snapshotRoot(source string) string {
+	if len(source) >= 3 && source[1] == ':' && (source[2] == '\\' || source[2] == '/') {
+		return "/" + source[:1] + strings.ReplaceAll(source[2:], "\\", "/")
+	}
+
+	return source
 }

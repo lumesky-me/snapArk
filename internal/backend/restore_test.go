@@ -27,3 +27,31 @@ func TestSafeNode(t *testing.T) {
 		})
 	}
 }
+
+func TestSymlinkChains(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		links map[string]string
+		ok    bool
+	}{
+		{"internal chain", map[string]string{"/dir/a": "../b", "/b": "file"}, true},
+		{"indirect traversal", map[string]string{"/dir/sub": "..", "/link": "dir/sub/../../outside"}, false},
+		{"cycle", map[string]string{"/a": "b", "/b": "a"}, false},
+		{"case alias traversal", map[string]string{"/dir/SUB": "..", "/link": "dir/sub/../../outside"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateLinks(tc.links)
+			if (err == nil) != tc.ok {
+				t.Fatalf("links: %v", err)
+			}
+		})
+	}
+}
+
+func TestSnapshotRootAcrossHosts(t *testing.T) {
+	for source, want := range map[string]string{`C:\Users\dev\app`: "/C/Users/dev/app", "D:/app": "/D/app", "/home/dev/app": "/home/dev/app"} {
+		if got := snapshotRoot(source); got != want {
+			t.Errorf("snapshotRoot(%q)=%q, want %q", source, got, want)
+		}
+	}
+}

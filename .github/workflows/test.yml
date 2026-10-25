@@ -23,6 +23,7 @@ jobs:
         run: |
           python scripts/install-restic.py --dir "$RUNNER_TEMP/veyra-bin"
           echo "$RUNNER_TEMP/veyra-bin" >> "$GITHUB_PATH"
+      - run: restic version
       - run: python scripts/test_install.py
       - run: go test -v ./...
       - run: go test -race ./...
