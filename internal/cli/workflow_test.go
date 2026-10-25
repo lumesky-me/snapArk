@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
 )
 
@@ -64,7 +65,25 @@ func TestProfileWorkflow(t *testing.T) {
 		t.Fatal("plan changed repository contents")
 	}
 	run(1, "status")
-	run(0, "backup")
+	stream := run(0, "backup")
+	decoder := json.NewDecoder(strings.NewReader(stream))
+	completed := false
+	for {
+		var event map[string]any
+		e := decoder.Decode(&event)
+		if e == io.EOF {
+			break
+		}
+		if e != nil {
+			t.Fatal("profile backup mixed non-JSON progress into stdout", e, stream)
+		}
+		if event["message_type"] == "completed" {
+			completed = true
+		}
+	}
+	if !completed {
+		t.Fatal("backup did not confirm completion")
+	}
 	if !strings.Contains(run(0, "find", "--query", "important"), "important.txt") {
 		t.Fatal("search missed backed-up file")
 	}
@@ -103,6 +122,29 @@ func TestProfileWorkflow(t *testing.T) {
 	}
 	run(0, "status")
 	run(0, "schedule")
+	store := config.Store{Path: cfg}
+	settings, e := store.Read()
+	if e != nil {
+		t.Fatal(e)
+	}
+	profile, e := settings.Select("app")
+	if e != nil {
+		t.Fatal(e)
+	}
+	command := exec.Command("restic", "--repo", repo, "--password-file", pw, "--no-cache", "backup", "--tag", profile.Tag()+":complete:pending", src)
+	if output, e := command.CombinedOutput(); e != nil {
+		t.Fatalf("create pending fixture: %v %s", e, output)
+	}
+	if !strings.Contains(run(1, "status"), "unfinished") {
+		t.Fatal("pending backup was reported healthy")
+	}
+	beforePending := invoke(0, "snapshots", "--repo", repo, "--password-file", pw, "--json")
+	run(0, "retention", "--confirm")
+	afterPending := invoke(0, "snapshots", "--repo", repo, "--password-file", pw, "--json")
+	if beforePending != afterPending {
+		t.Fatal("retention deleted pending or protected checkpoint snapshots")
+	}
+
 	invoke(0, "profile", "delete", "--config", cfg, "app")
 	if _, e := os.Stat(filepath.Join(repo, "config")); e != nil {
 		t.Fatal("deleting profile removed repository")
@@ -157,5 +199,41 @@ func TestScheduleEscaping(t *testing.T) {
 	}
 	if systemdArg("%h/$X") != `"%%h/$$X"` {
 		t.Fatal("systemd expansion was not escaped")
+	}
+}
+
+func TestStatusRejectsRedirectedSourceAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows junction resolution is tested natively in backend")
+	}
+	root := t.TempDir()
+	old := filepath.Join(root, "old")
+	next := filepath.Join(root, "new")
+	alias := filepath.Join(root, "alias")
+	for _, path := range []string{old, next} {
+		if e := os.Mkdir(path, 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := os.Symlink(old, alias); e != nil {
+		t.Fatal(e)
+	}
+	p := config.Profile{Sources: []string{alias}}
+	physical, e := backend.Canonical(old)
+	if e != nil {
+		t.Fatal(e)
+	}
+	snapshot := backend.Snapshot{Paths: []string{physical}}
+	if !profileRootsMatch(snapshot, p) {
+		t.Fatal("current source rejected")
+	}
+	if e := os.Remove(alias); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Symlink(next, alias); e != nil {
+		t.Fatal(e)
+	}
+	if profileRootsMatch(snapshot, p) {
+		t.Fatal("old target snapshot accepted as backup of redirected source")
 	}
 }

@@ -211,9 +211,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 				return fail(errors.New("--repo cannot override a named profile"))
 			}
 			r.Path = p.Repository
-			r.SnapshotTag = p.Tag()
+			r.SnapshotTag = p.Tag() + ":complete"
 			if cmd == "checkpoint" || cmd == "checkpoints" {
-				r.SnapshotTag += ":checkpoint"
+				r.SnapshotTag = p.Tag() + ":checkpoint"
 			}
 			r.SnapshotHost, _ = os.Hostname()
 		}
@@ -267,9 +267,18 @@ func (a App) Run(ctx context.Context, args []string) int {
 				options.Label = selected.Label
 			}
 		}
-		err = r.Backup(ctx, options)
-		if err == nil && selected != nil && !dry {
-			err = r.Check(ctx, selected.Verify == "full")
+		if selected != nil && !dry {
+			var id string
+			id, err = r.VerifiedBackup(ctx, options, r.SnapshotTag, selected.Verify == "full")
+			if err == nil {
+				if r.JSON {
+					err = json.NewEncoder(out).Encode(map[string]string{"message_type": "completed", "snapshot_id": id, "verification": selected.Verify})
+				} else {
+					fmt.Fprintf(out, "Snapshot %s completed; %s verification passed.\n", id, selected.Verify)
+				}
+			}
+		} else {
+			err = r.Backup(ctx, options)
 		}
 
 	case "snapshots", "checkpoints":

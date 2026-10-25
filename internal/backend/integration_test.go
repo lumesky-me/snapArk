@@ -294,10 +294,11 @@ func TestMultipleSourcesAndExclusions(t *testing.T) {
 		t.Fatalf("snapshot metadata: %+v", s)
 	}
 	target := filepath.Join(filepath.Dir(src), "selected-root")
-	root := filepath.ToSlash(src)
-	if runtime.GOOS == "windows" {
-		root = "/" + strings.ReplaceAll(root, ":", "")
+	resolved, e := Canonical(src)
+	if e != nil {
+		t.Fatal(e)
 	}
+	root := snapshotRoot(resolved)
 	if e = r.Restore(ctx, RestoreOptions{Snapshot: s.ID, Root: root, Target: target}); e != nil {
 		t.Fatal(e)
 	}
@@ -359,5 +360,27 @@ func TestIncludeTempDirectoryInsideSource(t *testing.T) {
 	}
 	if len(snaps) != 0 {
 		t.Fatal("unsafe include backup created a snapshot")
+	}
+}
+
+func TestSourceDirectorySymlinkContents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows junction variant is tested natively")
+	}
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "important"), []byte("follow explicit root"))
+	alias := filepath.Join(filepath.Dir(src), "source-alias")
+	if e := os.Symlink(src, alias); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{alias}}); e != nil {
+		t.Fatal(e)
+	}
+	target := filepath.Join(filepath.Dir(src), "alias-recovered")
+	if e := r.Restore(ctx, RestoreOptions{Snapshot: "latest", Target: target}); e != nil {
+		t.Fatal(e)
+	}
+	if hashFile(t, filepath.Join(target, "important")) != sha256.Sum256([]byte("follow explicit root")) {
+		t.Fatal("source alias preserved only the link instead of directory contents")
 	}
 }

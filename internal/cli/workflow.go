@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -38,7 +39,7 @@ func scoped(s backend.Snapshot, p config.Profile, host string) bool {
 		return false
 	}
 	for _, t := range s.Tags {
-		if t == p.Tag() {
+		if t == p.Tag()+":complete" {
 			return true
 		}
 	}
@@ -101,7 +102,7 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 		if e != nil {
 			return fail(e)
 		}
-		opts := []string{"forget", "--tag", p.Tag(), "--host", host, "--group-by", "host,paths"}
+		opts := []string{"forget", "--tag", p.Tag() + ":complete", "--host", host, "--group-by", "host,paths"}
 		if !confirm {
 			opts = append(opts, "--dry-run")
 		}
@@ -143,10 +144,11 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 		result := []overview{}
 		code := 0
 		for _, v := range profiles {
+			var latest, pending time.Time
 			row := overview{Profile: v.Name, Repository: v.Repository, Sources: v.Sources, State: "unknown", Verification: "not checked; snapshot recency is not an integrity check"}
 			repo := r
 			repo.Path = v.Repository
-			repo.SnapshotTag = v.Tag()
+			repo.SnapshotTag = ""
 			repo.SnapshotHost = host
 			repo.ReadOnly = true
 			repo.Out = a.Err
@@ -159,9 +161,15 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 				row.Error = e.Error()
 				code = 1
 			} else {
-				var latest time.Time
 				for _, s := range snaps {
-					if !scoped(s, v, host) {
+					for _, tag := range s.Tags {
+						if tag == v.Tag()+":complete:pending" {
+							if instant, e := time.Parse(time.RFC3339Nano, s.Time); e == nil && instant.After(pending) {
+								pending = instant
+							}
+						}
+					}
+					if !scoped(s, v, host) || !profileRootsMatch(s, v) {
 						continue
 					}
 					instant, e := time.Parse(time.RFC3339Nano, s.Time)
@@ -189,6 +197,10 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 						code = 1
 					}
 				}
+			}
+			if !pending.IsZero() && !pending.Before(latest) {
+				row.State = "warning: unfinished or in-progress backup"
+				code = 1
 			}
 			if v.Disabled {
 				row.State += " (profile disabled)"
@@ -296,4 +308,37 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 		return e
 	}
 	return code
+}
+
+// A profile may use a directory alias that has since been redirected. Snapshot
+// metadata must refer to the current physical source roots, not just its tag.
+func profileRootsMatch(snapshot backend.Snapshot, p config.Profile) bool {
+	roots := []string{}
+	for _, source := range p.Sources {
+		root, e := backend.Canonical(source)
+		if e != nil {
+			return false
+		}
+		roots = append(roots, root)
+	}
+	if len(snapshot.Paths) == 0 {
+		return false
+	}
+	for _, source := range snapshot.Paths {
+		path, e := filepath.Abs(source)
+		if e != nil {
+			return false
+		}
+		matched := false
+		for _, root := range roots {
+			if backend.Within(root, path) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }

@@ -59,9 +59,12 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "source read failure")
 			os.Exit(3)
 		}
-		messages := map[string]string{"disk-full": "no space left on device", "unplugged": "input/output error: device disconnected", "locked": "repository is already locked"}
+		messages := map[string]string{"disk-full": "no space left on device", "unplugged": "input/output error: device disconnected", "locked": "repository is already locked", "wrong-password": "wrong password"}
 		if msg, ok := messages[mode]; ok {
 			fmt.Fprintln(os.Stderr, msg)
+			if mode == "wrong-password" {
+				os.Exit(12)
+			}
 			if mode == "locked" {
 				os.Exit(11)
 			}
@@ -132,5 +135,16 @@ func TestUnsafeArchiveNeverCreatesTarget(t *testing.T) {
 				t.Fatal("unsafe archive created restore target")
 			}
 		})
+	}
+}
+
+func TestActionableBackendFailures(t *testing.T) {
+	for mode, want := range map[string]string{"partial": "incomplete", "locked": "lock ownership", "wrong-password": "protected password file"} {
+		var stderr bytes.Buffer
+		r := Repository{Path: filepath.Join(t.TempDir(), mode), Binary: os.Args[0], Err: &stderr}
+		e := r.Execute(context.Background(), "check")
+		if e == nil || !strings.Contains(e.Error(), want) {
+			t.Fatalf("%s: expected actionable %q: %v", mode, want, e)
+		}
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"github.com/lumesky-me/veyra/internal/backend"
@@ -72,7 +71,7 @@ func Protect(ctx context.Context, r backend.Repository, o RunOptions) (RunResult
 	if len(o.Command) == 0 {
 		return result, errors.New("provide a command after --")
 	}
-	dir, err := filepath.Abs(o.Project)
+	dir, err := backend.Canonical(o.Project)
 	if err != nil {
 		return result, err
 	}

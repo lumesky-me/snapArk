@@ -213,3 +213,32 @@ func TestInterruptedRestore(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestFailedProfileBackupHasNoCompletionTag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission denial; backend exit failures are tested portably")
+	}
+	r, src, ctx := fixture(t)
+	denied := filepath.Join(src, "unreadable")
+	mustWrite(t, denied, []byte("must not silently omit"))
+	if e := os.Chmod(denied, 0000); e != nil {
+		t.Fatal(e)
+	}
+	defer os.Chmod(denied, 0600)
+	complete := "veyra:test-profile:complete"
+	id, e := r.VerifiedBackup(ctx, BackupOptions{Sources: []string{src}}, complete, true)
+	if e == nil || id != "" {
+		t.Fatal("partial backup was certified complete", id, e)
+	}
+	snapshots, e := r.Snapshots(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, s := range snapshots {
+		for _, tag := range s.Tags {
+			if tag == complete {
+				t.Fatal("failed snapshot received completion tag")
+			}
+		}
+	}
+}

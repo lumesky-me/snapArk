@@ -114,7 +114,7 @@ func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 func (r Repository) Execute(ctx context.Context, args ...string) error {
 	err := r.command(ctx, args...).Run()
 	if err != nil {
-		return fmt.Errorf("restic %s failed (operation may be incomplete; inspect output): %w", args[0], err)
+		return operationError(ctx, args[0], err)
 	}
 	return nil
 }
@@ -136,7 +136,7 @@ func (r Repository) Decode(ctx context.Context, v any, args ...string) error {
 	_, _ = io.Copy(io.Discard, p)
 	runErr := c.Wait()
 	if runErr != nil {
-		return fmt.Errorf("restic %s: %w", args[0], runErr)
+		return operationError(ctx, args[0], runErr)
 	}
 	return decodeErr
 }
@@ -209,6 +209,10 @@ func Canonical(path string) (string, error) {
 	for {
 		resolved, e := filepath.EvalSymlinks(abs)
 		if e == nil {
+			resolved, e = canonicalExisting(resolved)
+			if e != nil {
+				return "", e
+			}
 			for i := len(tail) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, tail[i])
 			}
@@ -229,4 +233,25 @@ func Canonical(path string) (string, error) {
 func Within(parent, child string) bool {
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func operationError(ctx context.Context, operation string, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("restic %s interrupted; inspect snapshot history or the restore status before retrying: %w", operation, ctx.Err())
+	}
+	detail := "operation failed; inspect backend diagnostics (data may be incomplete)"
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		switch exit.ExitCode() {
+		case 3:
+			detail = "not all source data could be read; any saved snapshot may be incomplete"
+		case 10:
+			detail = "repository unavailable; check the destination, mounted drive, and initialization"
+		case 11:
+			detail = "repository locked; wait for other operations and inspect lock ownership"
+		case 12:
+			detail = "incorrect password; check the protected password file or interactive password"
+		}
+	}
+	return fmt.Errorf("restic %s: %s: %w", operation, detail, err)
 }

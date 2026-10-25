@@ -34,16 +34,28 @@ Repeated `--include` settings select literal relative files/directories within
 sources, not glob patterns. No include list means all source contents. Exclusion
 patterns then apply using restic's rules. Missing include paths are ignored only
 when other include paths exist; an entirely empty selection fails. Symlink
-selections resolving outside a source are rejected. Password files cannot be
+selections resolving outside a source are rejected. Explicit directory sources are
+resolved to their physical roots, so a source-directory symlink or junction backs
+up its contents rather than only the link. Internal links retain restic behavior.
+Planning shows both configured and resolved source roots. Password files cannot be
 inside any source. Profile checkpoints additionally exclude `.git` by default.
 
 Profile scope includes an opaque profile ID, source/filter revision, and current
 hostname. Changing source/filter settings starts a new scope. Status and retention
 will not treat another host, another profile, an old filter revision, or a profile
 checkpoint as proof of a current ordinary backup. Hostname changes require manual
-inspection of historical snapshots. `status` reads authoritative repository
+inspection of historical snapshots. Status also checks recorded physical source
+roots, so redirecting a directory alias does not make a snapshot of its former
+target count as a backup of the new target. `status` reads authoritative repository
 metadata; it does not store or invent a last-success flag. Verification history
-is reported as unknown. Unavailable repositories are not reported as empty.
+is reported as unknown. Profile backups use a pending tag until backup and configured
+verification succeed, then publish a completion tag using restic's own tag operation.
+Status warns about newer pending work, and retention never selects pending snapshots.
+An interrupted completion step can leave a fully written snapshot pending; inspect
+it with explicit `--repo`. Earlier unmarked profile snapshots remain recoverable
+with `--repo` but are not retroactively certified as successful. JSON backup output
+is a stream of restic events followed by a `completed` event carrying the final
+snapshot ID; tagging changes that ID, so use the final completion ID for recovery. Unavailable repositories are not reported as empty.
 
 `plan` opens repository metadata, authenticates with the supplied password source,
 and runs restic's dry-run scanner without repository locks or writes. Counts are

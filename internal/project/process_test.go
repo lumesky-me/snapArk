@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -57,7 +58,14 @@ func TestCommandProtection(t *testing.T) {
 		t.Fatal(e)
 	}
 	file := filepath.Join(src, "file")
-	opts := RunOptions{Project: src, Command: child("write", file, 7), Timeout: 10 * time.Second, Post: true, Stdout: io.Discard, Stderr: io.Discard}
+	project := src
+	if runtime.GOOS != "windows" {
+		project = filepath.Join(root, "project-alias")
+		if e := os.Symlink(src, project); e != nil {
+			t.Fatal(e)
+		}
+	}
+	opts := RunOptions{Project: project, Command: child("write", file, 7), Timeout: 10 * time.Second, Post: true, Stdout: io.Discard, Stderr: io.Discard}
 	result, e := Protect(ctx, r, opts)
 	if e != nil {
 		t.Fatal(e)

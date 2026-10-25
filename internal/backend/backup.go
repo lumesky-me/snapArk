@@ -30,6 +30,7 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 		return err
 	}
 	args := []string{"backup"}
+	sources := make([]string, 0, len(o.Sources))
 	for _, p := range o.Sources {
 		source, e := Canonical(p)
 		if e != nil {
@@ -42,6 +43,7 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 		if !info.IsDir() {
 			return fmt.Errorf("source must be a directory: %s", p)
 		}
+		sources = append(sources, source)
 		if Within(source, repo) || Within(repo, source) {
 			return errors.New("source and repository directories must not overlap, including through symbolic links")
 		}
@@ -87,7 +89,7 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 			_ = list.Close()
 			return e
 		}
-		for _, source := range o.Sources {
+		for _, source := range sources {
 			base, e := Canonical(source)
 			if e != nil {
 				_ = list.Close()
@@ -99,7 +101,7 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 			}
 		}
 		count := 0
-		for _, src := range o.Sources {
+		for _, src := range sources {
 			for _, rel := range o.Include {
 				if !filepath.IsLocal(rel) {
 					_ = list.Close()
@@ -147,7 +149,7 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 		return r.Execute(ctx, append(args, "--files-from-raw", list.Name())...)
 	}
 	args = append(args, "--")
-	for _, p := range o.Sources {
+	for _, p := range sources {
 		abs, e := filepath.Abs(p)
 		if e != nil {
 			return e
