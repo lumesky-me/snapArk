@@ -34,17 +34,18 @@ func (r Retention) Validate() error {
 func (r Retention) Empty() bool { return r == Retention{} }
 
 type Profile struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Repository    string    `json:"repository"`
-	Sources       []string  `json:"sources"`
-	Include       []string  `json:"include,omitempty"`
-	Exclude       []string  `json:"exclude,omitempty"`
-	Label         string    `json:"label,omitempty"`
-	Retention     Retention `json:"retention"`
-	Verify        string    `json:"verify"`
-	Disabled      bool      `json:"disabled,omitempty"`
-	ExpectedHours int       `json:"expected_hours,omitempty"`
+	FullVerifyHours int       `json:"full_verify_hours,omitempty"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Repository      string    `json:"repository"`
+	Sources         []string  `json:"sources"`
+	Include         []string  `json:"include,omitempty"`
+	Exclude         []string  `json:"exclude,omitempty"`
+	Label           string    `json:"label,omitempty"`
+	Retention       Retention `json:"retention"`
+	Verify          string    `json:"verify"`
+	Disabled        bool      `json:"disabled,omitempty"`
+	ExpectedHours   int       `json:"expected_hours,omitempty"`
 }
 type File struct {
 	Version  int                `json:"version"`
@@ -85,6 +86,9 @@ func (p Profile) Validate() error {
 	}
 	if p.Verify != "metadata" && p.Verify != "full" {
 		return errors.New("verification must be metadata or full")
+	}
+	if p.FullVerifyHours < 0 || p.FullVerifyHours > 87600 {
+		return errors.New("full-verification interval must be 0..87600 hours")
 	}
 	if p.ExpectedHours < 0 || p.ExpectedHours > 87600 {
 		return errors.New("expected backup interval cannot be negative")

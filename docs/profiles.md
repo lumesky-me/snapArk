@@ -47,8 +47,8 @@ checkpoint as proof of a current ordinary backup. Hostname changes require manua
 inspection of historical snapshots. Status also checks recorded physical source
 roots, so redirecting a directory alias does not make a snapshot of its former
 target count as a backup of the new target. `status` reads authoritative repository
-metadata; it does not store or invent a last-success flag. Verification history
-is reported as unknown. Profile backups use a pending tag until backup and configured
+metadata; it does not store or invent a last-success flag. Verification history is stored locally and associated by authenticated repository
+identity and observed snapshot IDs; a replaced repository does not inherit it. Profile backups use a pending tag until backup and configured
 verification succeed, then publish a completion tag using restic's own tag operation.
 Status warns about newer pending work, and retention never selects pending snapshots.
 An interrupted completion step can leave a fully written snapshot pending; inspect
@@ -128,7 +128,10 @@ No retention is scheduled. Review generated paths and the command before install
   with `launchctl bootstrap gui/$(id -u) PATH_TO_PLIST`. Remove it with
   `launchctl bootout gui/$(id -u) PATH_TO_PLIST`. RunAtLoad requests a run at load;
   interval behavior depends on launchd and the login session.
-- Windows: save the XML, inspect it, and import it in Task Scheduler. Select your
+- Windows: generated XML is currently inspection-only; coordinated execution
+  refuses unvalidated ACLs. Do not install this definition until ACL support is
+  implemented. For manually managed ordinary backups, use Task Scheduler only
+  after reviewing restrictive credential-file ACLs and account selection. Select your
   user account and non-elevated interactive execution; review the trigger and
   StartWhenAvailable setting. Disable or delete the named task in Task Scheduler.
   Logged-out execution and machine-wide credentials are not configured by VEYRA.
@@ -142,3 +145,78 @@ each other. After a crash an orphan `.profiles-*` temp file is ignored. A stale
 `profiles.json.lock` directory is never removed automatically: confirm no writer
 is active before removing it manually. Malformed/unsupported versions remain
 unchanged and must be restored or corrected before editing through the CLI.
+
+## Verification history and recovery rehearsal
+
+```sh
+veyra verify --profile app --full --password-file /private/backup-password
+veyra history --profile app --json
+veyra test-restore --profile app --full --password-file /private/backup-password
+veyra backup --profile app --scheduled --password-file /private/backup-password
+```
+
+History lives beside the selected profile configuration in `<config>.history/`.
+Records separate backup completion, metadata checks, full-data authentication,
+scheduled attempts, and actual full recovery rehearsals. A full verification reads
+all stored data. A rehearsal actually restores and verifies contents in a newly
+created private directory, removes only its own directory on success, and preserves
+failure evidence. `--temp-dir` selects an existing parent. Default sample mode deterministically selects up to five portable regular files
+within a 64 MiB content budget (`--sample-files`, `--max-bytes`). It streams actual
+authenticated file content into generated private filenames and independently
+rereads/hash-checks it. Sample selection scans snapshot metadata, not all file data.
+Samples do not validate links or metadata and do not prove complete recoverability.
+`--full` can require space for the entire selected scope.
+Existing `--repo`, `snapshots`, `files`, `find`, and exact-ID `restore` commands work
+on a replacement computer without the old profile or hostname. Normal profile
+status/retention scoping is not relaxed for disaster recovery.
+
+Journal files contain no password values or raw backend errors. Each started event
+is atomically replaced with its final result. A remaining `started` event means
+completion was not observed; it does not establish whether a process is still
+running. The journal is local evidence, not tamper-proof certification. Corrupt or
+unsupported records cause errors rather than being overwritten. After 1,000 records,
+new journaled work refuses to start; explicitly archive reviewed files to free space.
+A stale journal `.lock` or `run-<profile-id>.lock` requires manual inspection; locks
+are never stolen. Status authenticates current repository identity and scope before
+matching history. Retagging/deleting/adding snapshots can make prior checks historical;
+a scope match still does not guarantee present integrity. Backup-completion events
+are not full-verification events. Failed authentication without a known repository
+identity remains visible in history but is not attributed to the current repository.
+
+`--scheduled` requires an absolute private password-file path, fails promptly if
+another run owns the profile lock, and journals the attempt. It never runs retention.
+The pinned restic binary is found beside VEYRA before falling back to PATH. SIGTERM
+and Ctrl-C request cancellation; ungraceful process termination can leave a started
+record and lock for manual review. Windows coordinated execution currently refuses
+because password-file ACL validation is not implemented; do not install generated
+Windows definitions containing this flag yet. Ordinary explicitly invoked Windows
+backups remain supported with user-managed restrictive ACLs.
+
+On Linux, `schedule install --confirm --profile app --password-file /absolute/file`
+installs only user-systemd units. Inspect `schedule preview` first. `schedule status`,
+`schedule disable --confirm`, and `schedule remove --confirm` manage only entries
+bearing this profile/configuration ownership marker. Existing files are never
+overwritten; updates require explicit removal and reinstallation. No administrator
+privileges or lingering are enabled. A user systemd session must be available.
+Lifecycle unit tests use a fake command runner and disposable files; they do not
+establish that a scheduler is available on your host. macOS/Windows automatic
+management remains unavailable; their definitions are previews only. Native
+scheduling output is currently plain text; JSON is supported for previews.
+
+Profile export/import is non-secret and deliberately remapped:
+
+```sh
+veyra profile export app > app-profile.json
+veyra profile import --from app-profile.json --repo /mounted/backup --source /new/project replacement
+```
+
+Imports always get a fresh profile identity, start disabled, require explicit new
+repository/source paths, and refuse an existing profile name. Review the imported
+settings before using `profile replace` to enable it. Old-host snapshots remain
+available through explicit `--repo` recovery; imports do not authorize retention
+against their old profile scope. Exported paths can still be private metadata.
+`profile add/replace --full-verify-hours N` enables an age expectation for successful
+full-data checks. Zero leaves it disabled. Status reports consecutive observed
+scheduled failures separately; lack of a run record is not evidence of why a job
+failed to start. Check records retain their original scopes and do not become fresh
+merely because a profile was copied or the repository path was reused.

@@ -45,7 +45,7 @@ func TestCLIBackupRestore(t *testing.T) {
 		t.Helper()
 		var out, err bytes.Buffer
 		a := App{Out: &out, Err: &err}
-		argv := append([]string{command, "--repo", repo, "--password-file", password, "--json"}, args...)
+		argv := append([]string{command, "--config", filepath.Join(root, "settings.json"), "--repo", repo, "--password-file", password, "--json"}, args...)
 		if code := a.Run(context.Background(), argv); code != 0 {
 			t.Fatalf("%s exit %d: %s %s", command, code, out.String(), err.String())
 		}

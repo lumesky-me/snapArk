@@ -118,6 +118,21 @@ See [profiles and daily use](docs/profiles.md) for scope, confirmation, scheduli
 configuration recovery, and diagnostic limitations. Protected commands can use a single-source profile with `veyra run --profile app`.
 Only included, non-excluded files are protected.
 
+## Verification and rehearsal
+
+```sh
+veyra verify --profile app --full --password-file /private/backup-password
+veyra history --profile app --json
+veyra test-restore --profile app --full --password-file /private/backup-password
+```
+
+Checks, backup attempts, and full recovery rehearsals have separate local history.
+Status matches records to the current repository identity and snapshot scope;
+old results are not a current health guarantee. Linux user-systemd installation
+is opt-in with `schedule install --confirm`; macOS/Windows remain preview-only.
+See the [workflow guide](docs/profiles.md) for unattended execution, journal limits,
+private recovery directories, and current platform limitations.
+
 ## Development
 
 With the installed restic executable on PATH:

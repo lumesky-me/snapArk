@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -22,16 +24,17 @@ func configStore(path string) (config.Store, error) {
 }
 func (a App) profile(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(a.Out, "Usage: veyra profile add|list|show|replace|validate|delete|default [options] NAME\nProfiles contain no passwords. add/replace accept --repo, repeated --source, --include (relative paths), --exclude, --label, --verify metadata|full, --expected-hours and --keep-* retention counts. Options precede NAME. --config selects an alternative configuration file.")
+		fmt.Fprintln(a.Out, "Usage: veyra profile add|list|show|export|import|replace|validate|delete|default [options] NAME\nProfiles contain no passwords. add/replace accept --repo, repeated --source, --include (relative paths), --exclude, --label, --verify metadata|full, --expected-hours and --keep-* retention counts. Options precede NAME. --config selects an alternative configuration file.")
 		return 0
 	}
 	action := args[0]
 	fs := flag.NewFlagSet("profile "+action, flag.ContinueOnError)
 	fs.SetOutput(a.Err)
-	var path string
+	var path, from string
 	var structured bool
 	var sources, include, exclude stringsFlag
 	p := config.Profile{Verify: "metadata"}
+	fs.StringVar(&from, "from", "", "exported profile JSON to import (requires deliberate --repo and --source remapping)")
 	fs.StringVar(&path, "config", "", "configuration file (default: per-user config directory)")
 	fs.BoolVar(&structured, "json", false, "JSON output")
 	fs.StringVar(&p.Repository, "repo", "", "repository path")
@@ -42,6 +45,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 	fs.StringVar(&p.Verify, "verify", "metadata", "post-backup verification: metadata or full")
 	fs.BoolVar(&p.Disabled, "disabled", false, "disable profile backups")
 	fs.IntVar(&p.ExpectedHours, "expected-hours", 24, "expected backup age in hours (0 disables freshness warning)")
+	fs.IntVar(&p.FullVerifyHours, "full-verify-hours", 0, "full-data verification freshness expectation (0 disables)")
 	retentionFlags(fs, &p.Retention)
 	if e := fs.Parse(args[1:]); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
@@ -88,7 +92,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 	}
 	name := fs.Arg(0)
 	switch action {
-	case "show", "validate":
+	case "show", "validate", "export":
 		f, e := store.Read()
 		if e != nil {
 			return fail(e)
@@ -102,11 +106,75 @@ func (a App) profile(ctx context.Context, args []string) int {
 				return fail(e)
 			}
 		}
-		if e = json.NewEncoder(a.Out).Encode(p); e != nil {
+		var output any = p
+		if action == "export" {
+			output = struct {
+				Version int            `json:"version"`
+				Profile config.Profile `json:"profile"`
+			}{1, p}
+		}
+		if e = json.NewEncoder(a.Out).Encode(output); e != nil {
 			return fail(e)
 		}
 		return 0
-	case "add", "replace":
+	case "add", "replace", "import":
+		if action == "import" {
+			if from == "" || !hasFlag(fs, "repo") || !hasFlag(fs, "source") {
+				return fail(errors.New("import requires --from, --repo and --source; no original machine paths are assumed"))
+			}
+			file, e := os.Open(from)
+			if e != nil {
+				return fail(e)
+			}
+			info, statErr := file.Stat()
+			if statErr != nil || info.Size() > 4<<20 {
+				_ = file.Close()
+				return fail(errors.New("profile export cannot be read or exceeds 4 MiB"))
+			}
+			var exported struct {
+				Version int            `json:"version"`
+				Profile config.Profile `json:"profile"`
+			}
+			decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
+			decoder.DisallowUnknownFields()
+			e = decoder.Decode(&exported)
+			var extra any
+			if e == nil && decoder.Decode(&extra) != io.EOF {
+				e = errors.New("trailing export data")
+			}
+			_ = file.Close()
+			if e != nil {
+				return fail(e)
+			}
+			if exported.Version != 1 {
+				return fail(errors.New("unsupported profile export version"))
+			}
+			imported := exported.Profile
+			imported.Repository = p.Repository
+			imported.Sources = nil
+			if hasFlag(fs, "include") {
+				imported.Include = include
+			}
+			if hasFlag(fs, "exclude") {
+				imported.Exclude = exclude
+			}
+			if hasFlag(fs, "label") {
+				imported.Label = p.Label
+			}
+			if hasFlag(fs, "verify") {
+				imported.Verify = p.Verify
+			}
+			if hasFlag(fs, "expected-hours") {
+				imported.ExpectedHours = p.ExpectedHours
+			}
+			if hasFlag(fs, "full-verify-hours") {
+				imported.FullVerifyHours = p.FullVerifyHours
+			}
+			imported.Disabled = true // Imported scheduling is deliberately disabled until reviewed.
+			p = imported
+			include = append(stringsFlag{}, p.Include...)
+			exclude = append(stringsFlag{}, p.Exclude...)
+		}
 		p.Name = name
 		p.Include = include
 		p.Exclude = exclude
@@ -129,7 +197,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 		}
 		e = store.Update(func(f *config.File) error {
 			old, exists := f.Profiles[name]
-			if action == "add" && exists {
+			if (action == "add" || action == "import") && exists {
 				return errors.New("profile already exists; use profile replace")
 			}
 			if action == "replace" && !exists {

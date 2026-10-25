@@ -15,6 +15,7 @@ import (
 
 type Node struct {
 	Type       string `json:"type"`
+	Size       uint64 `json:"size,omitempty"`
 	Path       string `json:"path"`
 	LinkTarget string `json:"linktarget"`
 }

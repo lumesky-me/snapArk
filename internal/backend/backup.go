@@ -160,6 +160,9 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 }
 
 func (r Repository) Check(ctx context.Context, full bool) error {
+	if r.History != nil {
+		return r.RecordedCheck(ctx, full)
+	}
 	args := []string{"check"}
 	if full {
 		args = append(args, "--read-data")

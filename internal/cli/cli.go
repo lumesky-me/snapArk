@@ -24,6 +24,8 @@ const help = `VEYRA — encrypted backups and developer recovery (experimental)
 Usage: veyra COMMAND [OPTIONS] [ARGUMENTS]
 
 Commands:
+  test-restore  Rehearse sampled or full recovery in a private temporary directory
+  history       Inspect local verification and scheduled-run records
   profile       Manage named backup profiles
   plan          Preview a backup without creating snapshots
   doctor        Diagnose configuration and repository access
@@ -85,9 +87,16 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if args[0] == "profile" {
 		return a.profile(ctx, args[1:])
 	}
+	if args[0] == "schedule" && len(args) > 1 {
+		switch args[1] {
+		case "preview", "install", "status", "disable", "remove":
+			operation := args[1]
+			args = append(append([]string{"schedule"}, args[2:]...), operation)
+		}
+	}
 	cmd := args[0]
 	switch cmd {
-	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find":
+	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore":
 	default:
 		fmt.Fprintf(a.Err, "unknown command %q; use veyra help\n", cmd)
 		return 2
@@ -106,17 +115,25 @@ func (a App) Run(ctx context.Context, args []string) int {
 	fs.StringVar(&configPath, "config", "", "alternative profiles configuration file")
 	var selected *config.Profile
 	var exclude, include, test stringsFlag
-	var label, target, dir, restoreRoot, query string
-	var full, dry, confirm, fullGit, post, tracked bool
+	var label, target, dir, restoreRoot, query, tempDir string
+	var full, dry, confirm, fullGit, post, tracked, scheduled bool
+	var sampleFiles int
+	var sampleBytes int64
 	var timeout time.Duration
 	switch cmd {
 	case "backup", "checkpoint", "plan":
+		fs.BoolVar(&scheduled, "scheduled", false, "noninteractive coordinated profile backup with run history")
 		fs.Var(&exclude, "exclude", "exclude pattern (repeatable; ignored files are included by default)")
 		fs.StringVar(&label, "label", "", "snapshot label")
 		fs.BoolVar(&dry, "dry-run", false, "scan without storing a snapshot")
 		if cmd == "checkpoint" {
 			fs.BoolVar(&fullGit, "full-git", false, "include Git internals")
 		}
+	case "test-restore":
+		fs.BoolVar(&full, "full", false, "authorize complete recovery rather than bounded file-content sampling")
+		fs.IntVar(&sampleFiles, "sample-files", 5, "maximum sampled files (1..32)")
+		fs.Int64Var(&sampleBytes, "max-bytes", 64<<20, "maximum sampled content bytes")
+		fs.StringVar(&tempDir, "temp-dir", "", "existing parent for a new private rehearsal directory")
 	case "find":
 		fs.StringVar(&query, "query", "", "literal substring to search in snapshot paths")
 	case "restore":
@@ -128,7 +145,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		fs.BoolVar(&full, "full", false, "explicitly read and authenticate all repository data")
 	case "verify":
 		fs.BoolVar(&full, "full", false, "authenticate and read all stored data")
-	case "retention", "forget", "prune":
+	case "schedule", "retention", "forget", "prune":
 		fs.BoolVar(&confirm, "confirm", false, "apply destructive operation (default previews only)")
 	case "git":
 		fs.BoolVar(&tracked, "tracked", false, "also list tracked files")
@@ -201,7 +218,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		if e != nil {
 			return fail(e)
 		}
-		if profileName != "" || (f.Default != "" && cmd != "status") {
+		if profileName != "" || (f.Default != "" && cmd != "status" && cmd != "history") {
 			p, e := f.Select(profileName)
 			if e != nil {
 				return fail(e)
@@ -217,6 +234,28 @@ func (a App) Run(ctx context.Context, args []string) int {
 			}
 			r.SnapshotHost, _ = os.Hostname()
 		}
+	}
+	if cmd == "history" {
+		return a.history(configPath, selected, r.JSON)
+	}
+	if cmd == "verify" || cmd == "test-restore" || cmd == "run" || cmd == "doctor" || (selected != nil && (cmd == "backup" || cmd == "checkpoint")) {
+		if e := attachHistory(&r, configPath, selected); e != nil {
+			return fail(e)
+		}
+	}
+	if scheduled && (selected == nil || cmd != "backup" || dry) {
+		return fail(errors.New("--scheduled requires a real profile backup"))
+	}
+	if cmd == "test-restore" {
+
+		if len(positional) > 1 {
+			return fail(errors.New("provide at most one snapshot reference"))
+		}
+		ref := "latest"
+		if len(positional) == 1 {
+			ref = positional[0]
+		}
+		return a.rehearsal(ctx, r, ref, tempDir, full, sampleFiles, sampleBytes)
 	}
 	if cmd == "plan" || cmd == "doctor" || cmd == "status" || cmd == "retention" || cmd == "schedule" {
 		if cmd == "plan" && len(exclude) > 0 {
@@ -237,8 +276,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 		}
 		return a.workflow(ctx, cmd, r, selected, configPath, full, confirm, positional)
 	}
-	if err := r.Validate(ctx); err != nil {
-		return fail(err)
+	if !scheduled {
+		if err := r.Validate(ctx); err != nil {
+			return fail(err)
+		}
 	}
 
 	var err error
@@ -269,7 +310,19 @@ func (a App) Run(ctx context.Context, args []string) int {
 		}
 		if selected != nil && !dry {
 			var id string
-			id, err = r.VerifiedBackup(ctx, options, r.SnapshotTag, selected.Verify == "full")
+			operation := func() (string, error) {
+				if e := r.Validate(ctx); e != nil {
+					return "", e
+				}
+				return r.VerifiedBackup(ctx, options, r.SnapshotTag, selected.Verify == "full")
+			}
+			actualOperation := operation
+			operation = func() (string, error) { return recordedBackup(ctx, r, actualOperation) }
+			if scheduled {
+				id, err = a.scheduled(ctx, r, selected, operation)
+			} else {
+				id, err = operation()
+			}
 			if err == nil {
 				if r.JSON {
 					err = json.NewEncoder(out).Encode(map[string]string{"message_type": "completed", "snapshot_id": id, "verification": selected.Verify})

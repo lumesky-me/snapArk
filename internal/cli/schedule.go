@@ -70,7 +70,7 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 	if e != nil {
 		return nil, e
 	}
-	argv := []string{exe, "backup", "--config", store.Path, "--profile", p.Name, "--password-file", password}
+	argv := []string{exe, "backup", "--scheduled", "--config", store.Path, "--profile", p.Name, "--password-file", password}
 	for _, arg := range argv {
 		if strings.ContainsAny(arg, "\x00\r\n") {
 			return nil, errors.New("scheduler paths must not contain line breaks")

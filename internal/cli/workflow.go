@@ -11,10 +11,12 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
+	"github.com/lumesky-me/veyra/internal/journal"
 )
 
 type finding struct {
@@ -23,15 +25,23 @@ type finding struct {
 	Detail string `json:"detail"`
 }
 type overview struct {
-	Profile      string   `json:"profile"`
-	Repository   string   `json:"repository"`
-	Sources      []string `json:"sources"`
-	State        string   `json:"state"`
-	Latest       string   `json:"latest,omitempty"`
-	Time         string   `json:"time,omitempty"`
-	AgeHours     float64  `json:"age_hours,omitempty"`
-	Verification string   `json:"verification"`
-	Error        string   `json:"error,omitempty"`
+	ScheduledFailures int             `json:"consecutive_scheduled_failures"`
+	HistoryWarning    string          `json:"history_warning,omitempty"`
+	LastRun           *journal.Record `json:"last_scheduled_attempt,omitempty"`
+	LastRecovery      *journal.Record `json:"last_recovery_rehearsal,omitempty"`
+	HistoryState      string          `json:"history_state"`
+	LastCheck         *journal.Record `json:"last_check,omitempty"`
+	LastFull          *journal.Record `json:"last_full_data_check,omitempty"`
+	LastFailure       *journal.Record `json:"last_verification_failure,omitempty"`
+	Profile           string          `json:"profile"`
+	Repository        string          `json:"repository"`
+	Sources           []string        `json:"sources"`
+	State             string          `json:"state"`
+	Latest            string          `json:"latest,omitempty"`
+	Time              string          `json:"time,omitempty"`
+	AgeHours          float64         `json:"age_hours,omitempty"`
+	Verification      string          `json:"verification"`
+	Error             string          `json:"error,omitempty"`
 }
 
 func scoped(s backend.Snapshot, p config.Profile, host string) bool {
@@ -72,15 +82,28 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 		}
 		return 1
 	}
-	if len(args) > 0 && cmd != "plan" {
+	if len(args) > 0 && cmd != "plan" && cmd != "schedule" {
 		return fail(errors.New("this command accepts options only"))
 	}
 	if cmd == "schedule" {
 		if p == nil {
 			return fail(errors.New("schedule requires --profile"))
 		}
-		if p.Disabled {
+		if len(args) > 1 {
+			return fail(errors.New("provide one schedule operation"))
+		}
+		action := "preview"
+		if len(args) == 1 {
+			action = args[0]
+		}
+		if p.Disabled && (action == "install" || action == "preview") {
 			return fail(errors.New("profile is disabled"))
+		}
+		if action != "preview" {
+			if r.JSON {
+				return fail(errors.New("scheduler management currently emits native systemctl output; omit --json or use JSON preview"))
+			}
+			return a.manageSchedule(ctx, *p, path, r.PasswordFile, action, confirm)
 		}
 		text, e := schedule(*p, path, r.PasswordFile)
 		if e != nil {
@@ -148,6 +171,7 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 			row := overview{Profile: v.Name, Repository: v.Repository, Sources: v.Sources, State: "unknown", Verification: "not checked; snapshot recency is not an integrity check"}
 			repo := r
 			repo.Path = v.Repository
+			repo.ProfileID = v.ID
 			repo.SnapshotTag = ""
 			repo.SnapshotHost = host
 			repo.ReadOnly = true
@@ -204,6 +228,29 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 			}
 			if v.Disabled {
 				row.State += " (profile disabled)"
+			}
+			row.withHistory(ctx, repo, path)
+			if row.HistoryWarning != "" || strings.HasPrefix(row.HistoryState, "unreadable:") {
+				row.State = "warning: verification history needs attention"
+				code = 1
+			}
+			if v.FullVerifyHours > 0 {
+				if row.LastFull == nil || time.Since(*row.LastFull.Finished) > time.Duration(v.FullVerifyHours)*time.Hour {
+					row.State = "warning: full-data verification is absent or overdue"
+					code = 1
+				}
+			}
+			if row.LastFailure != nil && (row.LastCheck == nil || row.LastFailure.Finished.After(*row.LastCheck.Finished)) {
+				row.State = "warning: latest verification failed, was interrupted, or was inconclusive"
+				code = 1
+			}
+			if row.LastRun != nil && row.LastRun.Outcome != "passed" {
+				row.State = "warning: latest scheduled attempt failed or has no observed completion"
+				code = 1
+			}
+			if row.LastRecovery != nil && row.LastRecovery.Outcome != "passed" {
+				row.State = "warning: latest recovery rehearsal did not pass"
+				code = 1
 			}
 			result = append(result, row)
 		}

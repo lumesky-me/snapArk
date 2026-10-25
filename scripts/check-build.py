@@ -67,6 +67,13 @@ def main():
         if plan["estimated_files"] != 1:
             raise ValueError("packaged backup plan did not find the source file")
         run("backup", *options)
+        run("verify", *options, "--full")
+        events = json.loads(run("history", *options))
+        if not any(e["kind"] == "verification" and e["depth"] == "full-data" and e["outcome"] == "passed" for e in events):
+            raise ValueError("packaged full verification was not recorded")
+        sample = json.loads(run("test-restore", *options, "--sample-files", "1", "--max-bytes", "64", "--temp-dir", work))
+        if sample["result"] != "passed" or len(sample["tested_files"]) != 1:
+            raise ValueError("packaged recovery sample was not verified")
         rows = json.loads(run("status", *options))
         if len(rows) != 1 or rows[0]["state"] != "working":
             raise ValueError("packaged profile backup not confirmed")

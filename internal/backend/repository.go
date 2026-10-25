@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lumesky-me/veyra/internal/journal"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +20,10 @@ import (
 const Version = "0.18.1"
 
 type Repository struct {
+	History    *journal.Store
+	ProfileID  string
+	AppVersion string
+
 	Path         string
 	PasswordFile string
 	Binary       string
@@ -70,7 +75,7 @@ func (r Repository) Validate(ctx context.Context) error {
 	}
 	binary := r.Binary
 	if binary == "" {
-		binary = "restic"
+		binary = resticBinary()
 	}
 	cmd := exec.CommandContext(ctx, binary, "version")
 	cmd.Env = Environment()
@@ -87,7 +92,7 @@ func (r Repository) Validate(ctx context.Context) error {
 func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 	binary := r.Binary
 	if binary == "" {
-		binary = "restic"
+		binary = resticBinary()
 	}
 	repoPath, _ := filepath.Abs(r.Path)
 	base := []string{"--repo", repoPath, "--no-cache"}
@@ -254,4 +259,18 @@ func operationError(ctx context.Context, operation string, err error) error {
 		}
 	}
 	return fmt.Errorf("restic %s: %s: %w", operation, detail, err)
+}
+
+func resticBinary() string {
+	exe, e := os.Executable()
+	if e == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "restic")
+		if runtime.GOOS == "windows" {
+			candidate += ".exe"
+		}
+		if info, e := os.Stat(candidate); e == nil && info.Mode().IsRegular() {
+			return candidate
+		}
+	}
+	return "restic"
 }
