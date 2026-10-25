@@ -1,0 +1,30 @@
+name: Test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install verified restic
+        shell: bash
+        run: |
+          python scripts/install-restic.py --dir "$RUNNER_TEMP/veyra-bin"
+          echo "$RUNNER_TEMP/veyra-bin" >> "$GITHUB_PATH"
+      - run: python scripts/test_install.py
+      - run: go test -v ./...
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build ./cmd/veyra
