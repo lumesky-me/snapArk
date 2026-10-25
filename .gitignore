@@ -1,0 +1,5 @@
+/bin/
+/veyra
+/veyra.exe
+*.test
+coverage.out
