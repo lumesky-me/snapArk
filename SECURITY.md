@@ -1,0 +1,64 @@
+# Security and recovery
+
+VEYRA is experimental and has not undergone an independent security audit.
+Keep an independent backup of important data and practice restoring it.
+
+## Repository protection
+
+Restic 0.18.1 provides encryption, authenticated storage, password derivation,
+locking, and repository integrity. Losing all passwords/keys makes recovery
+impossible. Anyone with a key can decrypt the repository. Encryption does not
+hide repository size or access patterns and does not prevent deletion by someone
+with filesystem access. Keep repository and password permissions restricted.
+
+Passwords may be entered through restic's terminal prompt or read from a private
+regular password file. VEYRA rejects symlink password files and Unix files with
+group/other permissions. On Windows the owner must restrict the file ACL.
+Password files inside a source are rejected. Inherited restic configuration is
+removed; credentials are never accepted as password command arguments.
+
+Wrapped commands receive a filtered environment without restic/VEYRA variables
+or conventional token/password/secret/API-key variables. This is not a sandbox:
+commands can read accessible files, access the network, and discover other
+credentials. VEYRA executes only commands explicitly supplied by the user.
+Protection applies only to operations wrapped with `veyra run`.
+
+## Consistency and interrupted operations
+
+Files are streamed rather than loaded in memory. Restic handles change detection
+and reports read failures; nonzero backend status is a failure, even if a partial
+snapshot exists. Backups are not atomic filesystem snapshots. Pause applications
+or use application-specific exports for databases and other live multi-file data.
+An excluded file is not protected. Git history is never changed automatically.
+
+Restic's repository locks are retained. An interrupted process may leave a stale
+lock or unreferenced data. Do not remove locks while another client may still be
+working. Diagnose using restic's documented recovery tools after confirming all
+writers have stopped. VEYRA does not automatically unlock or repair repositories.
+A disconnected mounted drive must be remounted at the original path before retry.
+
+`verify` checks repository structure and metadata; `verify --full` also reads and
+authenticates every stored data pack. The protected-command gate uses the latter.
+Failed verification blocks command execution. Pruning does not replace checking.
+Deleting a snapshot with `forget --confirm` can make it unrecoverable after prune.
+
+## Restore boundaries
+
+Targets must be new directories with existing, trusted parents. Never restore
+into an attacker-controlled directory or run restoration concurrently with an
+untrusted process able to replace its paths. VEYRA is not designed to resist a
+local attacker racing filesystem operations under the same account.
+
+Preflight validates an authenticated streaming archive before extraction, rejecting
+traversal, absolute or escaping symlinks, nonportable names, case collisions,
+and unsupported special file types. This is deliberately conservative: a valid
+backup with such entries may require manual inspection and recovery using restic.
+Relative symlinks are interpreted inside the selected snapshot root, independent
+of macOS temporary-directory aliases. Restic performs extraction and content
+verification. Failed restore directories are retained and must not be treated
+as complete. Metadata is preserved only where the platform and privileges allow;
+ownership errors and unsupported metadata are reported as failures.
+
+Subprocess cancellation kills the process group on Unix and uses Windows taskkill
+for the process tree. Programs can deliberately detach or escape those mechanisms;
+VEYRA does not provide OS process containment. Ctrl-C cancels ongoing work.

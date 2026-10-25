@@ -85,7 +85,8 @@ func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 	if binary == "" {
 		binary = "restic"
 	}
-	base := []string{"--repo", r.Path, "--no-cache"}
+	repoPath, _ := filepath.Abs(r.Path)
+	base := []string{"--repo", repoPath, "--no-cache"}
 	if r.PasswordFile != "" {
 		base = append(base, "--password-file", r.PasswordFile)
 	}
@@ -115,6 +116,7 @@ func (r Repository) Decode(ctx context.Context, v any, args ...string) error {
 	r.JSON = true
 	r.Quiet = false
 	c := r.command(ctx, args...)
+	c.Stdout = nil
 	p, err := c.StdoutPipe()
 	if err != nil {
 		return err

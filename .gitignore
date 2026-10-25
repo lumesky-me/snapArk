@@ -3,3 +3,4 @@
 /veyra.exe
 *.test
 coverage.out
+__pycache__/

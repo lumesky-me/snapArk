@@ -1,8 +1,8 @@
 package backend
 
 import (
+	"archive/tar"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -48,10 +48,13 @@ func SafeNode(n Node) error {
 	return nil
 }
 
+// Preflight reads an authenticated archive stream because restic ls JSON omits
+// symbolic-link targets. Nothing is extracted or stored in plaintext on disk.
 func (r Repository) validateTree(ctx context.Context, id string) error {
-	r.JSON = true
-	r.Quiet = false
-	c := r.command(ctx, "ls", id)
+	r.JSON = false
+	r.Quiet = true
+	c := r.command(ctx, "dump", id, "/", "--archive", "tar")
+	c.Stdout = nil
 	pipe, err := c.StdoutPipe()
 	if err != nil {
 		return err
@@ -59,30 +62,76 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 	if err = c.Start(); err != nil {
 		return err
 	}
-	d := json.NewDecoder(pipe)
+	reader := tar.NewReader(pipe)
 	var firstErr error
+	seen := make(map[string]string)
+	links := make(map[string]bool)
 	for {
-		var n Node
-		err = d.Decode(&n)
-		if err == io.EOF {
+		h, e := reader.Next()
+		if e == io.EOF {
 			break
 		}
-		if err != nil {
-			firstErr = err
+		if e != nil {
+			firstErr = e
 			break
 		}
-		if n.Path == "" {
+		name := strings.TrimSuffix(h.Name, "/")
+		if name == "." || name == "" {
 			continue
-		} // snapshot metadata record
-		if err = SafeNode(n); err != nil {
-			firstErr = err
+		}
+		if strings.HasPrefix(name, "/") {
+			firstErr = errors.New("absolute archive member")
 			break
+		}
+		n := Node{Path: "/" + name, LinkTarget: h.Linkname}
+		switch h.Typeflag {
+		case tar.TypeReg, tar.TypeRegA:
+			n.Type = "file"
+		case tar.TypeDir:
+			n.Type = "dir"
+		case tar.TypeSymlink:
+			n.Type = "symlink"
+			links[n.Path] = true
+		case tar.TypeLink:
+			n.Type = "file"
+			if h.Linkname == "" || strings.HasPrefix(h.Linkname, "/") || strings.ContainsAny(h.Linkname, "\\:\x00") || path.Clean(h.Linkname) != h.Linkname || strings.HasPrefix(h.Linkname, "../") {
+				firstErr = errors.New("unsafe hard-link target")
+			}
+		default:
+			firstErr = fmt.Errorf("unsupported archive member type %d", h.Typeflag)
+		}
+		if firstErr != nil {
+			break
+		}
+		if e = SafeNode(n); e != nil {
+			firstErr = e
+			break
+		}
+		folded := strings.ToLower(n.Path)
+		if prev, ok := seen[folded]; ok {
+			firstErr = fmt.Errorf("duplicate or case-colliding paths: %q and %q", prev, n.Path)
+			break
+		}
+		seen[folded] = n.Path
+	}
+	if firstErr == nil {
+		for _, p := range seen {
+			for parent := path.Dir(p); parent != "/" && parent != "."; parent = path.Dir(parent) {
+				if links[parent] {
+					firstErr = fmt.Errorf("archive entry below symbolic link: %s", p)
+					break
+				}
+			}
+			if firstErr != nil {
+				break
+			}
 		}
 	}
 	if firstErr != nil {
 		_ = c.Process.Kill()
-		_, _ = io.Copy(io.Discard, pipe)
 	}
+	// Consume any remaining output before Wait, including tar trailer padding.
+	_, _ = io.Copy(io.Discard, pipe)
 	runErr := c.Wait()
 	if firstErr != nil {
 		return firstErr
@@ -92,6 +141,7 @@ func (r Repository) validateTree(ctx context.Context, id string) error {
 
 type RestoreOptions struct {
 	Snapshot string
+	Root     string
 	Target   string
 	Include  []string
 	DryRun   bool
@@ -119,10 +169,25 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	if _, e := os.Lstat(o.Target); !errors.Is(e, os.ErrNotExist) {
 		return errors.New("restore target must not exist; existing files are never overwritten")
 	}
-	if err = r.validateTree(ctx, s.ID); err != nil {
+	ref := s.ID
+	root := o.Root
+	if root == "" && len(s.Paths) == 1 {
+		root = filepath.ToSlash(s.Paths[0])
+		root = strings.ReplaceAll(root, ":", "")
+		if !strings.HasPrefix(root, "/") {
+			root = "/" + root
+		}
+	}
+	if root != "" {
+		if !strings.HasPrefix(root, "/") || path.Clean(root) != root || strings.ContainsAny(root, "\\:\x00") {
+			return errors.New("invalid snapshot root")
+		}
+		ref += ":" + root
+	}
+	if err = r.validateTree(ctx, ref); err != nil {
 		return fmt.Errorf("restore preflight: %w", err)
 	}
-	args := []string{"restore", s.ID, "--target", target, "--verify"}
+	args := []string{"restore", ref, "--target", target, "--verify"}
 	for _, p := range o.Include {
 		if !validSelector(p) {
 			return errors.New("invalid include pattern")
