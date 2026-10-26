@@ -79,7 +79,11 @@ def main():
                         raise RuntimeError(f'native scheduled backup had unexpected outcome: {finished[-1]}')
                     return
                 time.sleep(0.25)
-            raise RuntimeError('native scheduled backup did not record completion within 60 seconds')
+            detail = json.dumps(history()[-6:], sort_keys=True)
+            if system == 'Linux':
+                state = subprocess.run(['systemctl', '--user', 'status', '--no-pager', f'veyra-{name}.service'], capture_output=True, text=True)
+                detail += '\n' + state.stdout + state.stderr
+            raise RuntimeError('native scheduled backup did not record completion within 60 seconds: ' + detail)
 
         def windows_action(action):
             # Only this fixture's randomly named and owner-matched task is run
@@ -135,6 +139,12 @@ else{throw 'Unknown operation'}
             # Enabling a LaunchAgent can start another RunAtLoad. Wait for it
             # before disconnecting storage and deliberately injecting failure.
             if system == 'Darwin':
+                await_outcome('passed', before_enable)
+            elif system == 'Linux':
+                # An already elapsed OnBootSec can trigger a run when the timer
+                # is enabled. Wait for the oneshot service before disconnecting
+                # storage, so its event cannot be mistaken for an older run.
+                trigger()
                 await_outcome('passed', before_enable)
             previous = {e['id'] for e in history()}
             offline = work / 'disconnected'

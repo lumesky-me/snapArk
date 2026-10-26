@@ -5,12 +5,13 @@ import sys
 
 
 def main():
-    result = subprocess.run(['go', 'run', 'golang.org/x/vuln/cmd/govulncheck@v1.1.4', './...'],
+    result = subprocess.run(['go', 'run', 'golang.org/x/vuln/cmd/govulncheck@v1.9.0', './...'],
                             capture_output=True, text=True)
     print(result.stdout, end='')
     print(result.stderr, end='', file=sys.stderr)
     if result.returncode:
-        detail = (result.stdout + result.stderr)[-14000:]
+        output = result.stdout + result.stderr
+        detail = output if len(output) <= 14000 else output[:9000] + '\n... truncated ...\n' + output[-5000:]
         detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
         print('::error::Go vulnerability check failed: ' + detail, flush=True)
     return result.returncode

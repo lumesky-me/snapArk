@@ -73,9 +73,12 @@ def drive(binary, args, answers, secret, expected_exit=0):
         checked(kernel.UpdateProcThreadAttribute(attributes, 0, 0x00020016, console, ctypes.sizeof(w.HANDLE), None, None))
         startup = StartupInfoEx()
         startup.StartupInfo.cb = ctypes.sizeof(startup)
+        # Explicit null standard handles let ConPTY supply console handles.
+        # Otherwise a CI parent can pass its redirected pipes to the client.
+        startup.StartupInfo.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
         startup.lpAttributeList = ctypes.addressof(attributes)
         command = ctypes.create_unicode_buffer(subprocess.list2cmdline([str(binary), *map(str, args)]))
-        checked(kernel.CreateProcessW(str(binary), command, None, None, False, 0x00080000,
+        checked(kernel.CreateProcessW(str(binary), command, None, None, False, 0x00080400,
                                       None, None, ctypes.byref(startup), ctypes.byref(proc)))
         kernel.CloseHandle(proc.hThread)
         proc.hThread = None
