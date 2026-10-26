@@ -116,6 +116,7 @@ func TestProfileWorkflow(t *testing.T) {
 	if e := json.Unmarshal([]byte(text), &all); e != nil || len(all) != 2 {
 		t.Fatal("retention touched unrelated snapshot", text)
 	}
+	invoke(0, "checkpoint", "--repo", repo, "--password-file", pw, src)
 	run(0, "run", "--", os.Args[0], "-test.run=^TestHelpAndInvalidInput$")
 	var checkpoints []map[string]any
 	if e := json.Unmarshal([]byte(run(0, "checkpoints")), &checkpoints); e != nil || len(checkpoints) != 1 {

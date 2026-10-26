@@ -134,6 +134,7 @@ func TestCredentialWin32AliasesRefused(t *testing.T) {
 		if e = os.WriteFile(native, []byte("disposable private credential"), 0600); e != nil {
 			t.Fatal(e)
 		}
+		defer os.Remove(native)
 		credentialACL(t, native, "D:P(A;;FA;;;"+user.User.Sid.String()+")")
 		if _, e = ProtectPassword(p); e == nil {
 			t.Fatalf("ambiguous Win32 credential path accepted: %q", p)

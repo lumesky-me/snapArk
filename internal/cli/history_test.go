@@ -98,6 +98,43 @@ func TestDurableVerificationAndRecovery(t *testing.T) {
 	}
 	run(0, "backup", "--scheduled")
 	run(0, "status")
+	// A process can disappear before publishing any snapshot or final journal
+	// record. The older good snapshot must not hide this unobserved attempt.
+	store := journal.Store{Dir: cfg + ".history"}
+	records, e := store.Read()
+	if e != nil {
+		t.Fatal(e)
+	}
+	var profile string
+	for _, record := range records {
+		if record.Kind == "backup" {
+			profile = record.Profile
+		}
+	}
+	unobserved, e := store.Begin(journal.Record{Kind: "backup", Profile: profile, Depth: "completion"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	recordPath := filepath.Join(store.Dir, unobserved.ID+".json")
+	before, e := os.ReadFile(recordPath)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = json.Unmarshal([]byte(run(1, "status")), &rows); e != nil || rows[0].LastBackup == nil || rows[0].LastBackup.Outcome != "started" {
+		t.Fatal("unobserved backup was hidden by an older good snapshot", rows, e)
+	}
+	after, e := os.ReadFile(recordPath)
+	if e != nil || !bytes.Equal(before, after) {
+		t.Fatal("status changed an unobserved record", e)
+	}
+	// This fixture owns the interrupted operation; the CLI itself never
+	// finalizes somebody else's record or removes a stale run lock.
+	if e = store.Finish(unobserved, "interrupted", "cancellation"); e != nil {
+		t.Fatal(e)
+	}
+	run(1, "status")
+	run(0, "backup", "--scheduled")
+	run(0, "status")
 	oldRepo := repo + "-original"
 	if e := os.Rename(repo, oldRepo); e != nil {
 		t.Fatal(e)

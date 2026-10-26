@@ -28,6 +28,7 @@ type overview struct {
 	ScheduledFailures int             `json:"consecutive_scheduled_failures"`
 	HistoryWarning    string          `json:"history_warning,omitempty"`
 	LastRun           *journal.Record `json:"last_scheduled_attempt,omitempty"`
+	LastBackup        *journal.Record `json:"last_backup_attempt,omitempty"`
 	LastRecovery      *journal.Record `json:"last_recovery_rehearsal,omitempty"`
 	HistoryState      string          `json:"history_state"`
 	LastCheck         *journal.Record `json:"last_check,omitempty"`
@@ -65,12 +66,9 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 				fmt.Fprintln(a.Err, e)
 				return 1
 			}
-		} else {
-			b, e := json.MarshalIndent(v, "", "  ")
-			if e != nil {
-				return 1
-			}
-			fmt.Fprintln(a.Out, string(b))
+		} else if e := humanWorkflow(a.Out, v); e != nil {
+			fmt.Fprintln(a.Err, e)
+			return 1
 		}
 		return 0
 	}
@@ -161,6 +159,12 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 			return fail(e)
 		}
 		sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+		passwords := map[string][]byte{}
+		defer func() {
+			for _, secret := range passwords {
+				wipe(secret)
+			}
+		}()
 		result := []overview{}
 		code := 0
 		for _, v := range profiles {
@@ -180,45 +184,55 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 				row.State = "unavailable"
 				row.Error = e.Error()
 				code = 1
-			} else if snaps, e := repo.Snapshots(ctx); e != nil {
-				row.State = "unavailable"
-				row.Error = e.Error()
-				code = 1
 			} else {
-				for _, s := range snaps {
-					for _, tag := range s.Tags {
-						if tag == v.Tag()+":complete:pending" {
-							if instant, e := time.Parse(time.RFC3339Nano, s.Time); e == nil && instant.After(pending) {
-								pending = instant
-							}
-						}
-					}
-					if !scoped(s, v, host) || !profileRootsMatch(s, v) {
-						continue
-					}
-					instant, e := time.Parse(time.RFC3339Nano, s.Time)
-					if e != nil {
-						continue
-					}
-					if latest.IsZero() || instant.After(latest) {
-						latest = instant
-						row.Latest = s.ID
-						row.Time = s.Time
-					}
+				repo.PasswordInput = passwords[repo.Path]
+				if e := a.repositoryPassword(ctx, &repo, false); e != nil {
+					return fail(e)
 				}
-				if latest.IsZero() {
-					row.State = "no matching snapshot"
+				if len(repo.PasswordInput) > 0 {
+					passwords[repo.Path] = repo.PasswordInput
+				}
+				snaps, e := repo.Snapshots(ctx)
+				if e != nil {
+					row.State = "unavailable"
+					row.Error = e.Error()
 					code = 1
 				} else {
-					row.State = "working"
-					row.AgeHours = time.Since(latest).Hours()
-					if v.ExpectedHours > 0 && row.AgeHours > float64(v.ExpectedHours) {
-						row.State = "warning: overdue"
-						code = 1
+					for _, s := range snaps {
+						for _, tag := range s.Tags {
+							if tag == v.Tag()+":complete:pending" {
+								if instant, e := time.Parse(time.RFC3339Nano, s.Time); e == nil && instant.After(pending) {
+									pending = instant
+								}
+							}
+						}
+						if !scoped(s, v, host) || !profileRootsMatch(s, v) {
+							continue
+						}
+						instant, e := time.Parse(time.RFC3339Nano, s.Time)
+						if e != nil {
+							continue
+						}
+						if latest.IsZero() || instant.After(latest) {
+							latest = instant
+							row.Latest = s.ID
+							row.Time = s.Time
+						}
 					}
-					if row.AgeHours < 0 {
-						row.State = "warning: snapshot timestamp is in the future"
+					if latest.IsZero() {
+						row.State = "no matching snapshot"
 						code = 1
+					} else {
+						row.State = "working"
+						row.AgeHours = time.Since(latest).Hours()
+						if v.ExpectedHours > 0 && row.AgeHours > float64(v.ExpectedHours) {
+							row.State = "warning: overdue"
+							code = 1
+						}
+						if row.AgeHours < 0 {
+							row.State = "warning: snapshot timestamp is in the future"
+							code = 1
+						}
 					}
 				}
 			}
@@ -246,6 +260,10 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 			}
 			if row.LastRun != nil && row.LastRun.Outcome != "passed" {
 				row.State = "warning: latest scheduled attempt failed or has no observed completion"
+				code = 1
+			}
+			if row.LastBackup != nil && row.LastBackup.Outcome != "passed" {
+				row.State = "warning: latest backup attempt failed or has no observed completion"
 				code = 1
 			}
 			if row.LastRecovery != nil && row.LastRecovery.Outcome != "passed" {

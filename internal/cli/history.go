@@ -177,6 +177,10 @@ func (r *overview) withHistory(ctx context.Context, repo backend.Repository, pat
 	r.HistoryState = "no verification history for this repository"
 	r.Verification = "unknown"
 	for _, event := range records {
+		if event.Kind == "backup" && event.Profile == repo.ProfileID && (event.Repository == identity || event.Repository == "") {
+			copy := event
+			r.LastBackup = &copy
+		}
 		if event.Kind == "scheduled-run" && event.Profile == repo.ProfileID && (event.Repository == identity || event.Repository == "") {
 			copy := event
 			r.LastRun = &copy

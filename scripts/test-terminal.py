@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise hidden password entry and actual guided recovery in a disposable PTY."""
 import argparse
+import json
+import subprocess
 import errno
 import os
 from pathlib import Path
@@ -124,9 +126,22 @@ def main():
                                 if line.startswith("Recover: "))
         if shlex.split(recovery_command) != [str(binary), "recover", "--config", str(cfg), "--profile", "terminal"]:
             raise RuntimeError("setup printed an unsafe or unusable recovery command")
+        credential = root / "private password"
+        credential.write_text(password, encoding="utf-8")
+        credential.chmod(0o600)
+        snapshots = json.loads(subprocess.check_output([str(binary), "snapshots", "--config", str(cfg),
+                                "--profile", "terminal", "--password-file", str(credential), "--json"], text=True))
+        original_id = snapshots[0]["id"]
+        (source / "important.txt").write_text("newer version", encoding="utf-8")
+        repeated = drive(binary, ["backup", "--config", cfg, "--profile", "terminal"], [
+            ("Repository password (hidden):", password),
+        ], password)
+        if repeated.count("Repository password (hidden):") != 1 or "completed" not in repeated:
+            raise RuntimeError("a repeated backup did not finish with one secure password prompt")
         recovered = root / "recovered"
         output = drive(binary, ["recover", "--repo", repo], [
             ("Repository password (hidden):", password),
+            ("Snapshot number", "/" + original_id),
             ("Snapshot number", "1"),
             ("Number opens a folder", "all"),
             ("New destination directory", str(recovered)),

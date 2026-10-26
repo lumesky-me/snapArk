@@ -18,8 +18,6 @@ import (
 	"github.com/lumesky-me/veyra/internal/project"
 )
 
-const Version = "0.1.0-dev"
-
 const help = `VEYRA — encrypted backups and developer recovery (experimental)
 
 Usage: veyra COMMAND [OPTIONS] [ARGUMENTS]
@@ -90,8 +88,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		return 0
 	}
 	if args[0] == "version" {
-		fmt.Fprintf(a.Out, "veyra %s (requires restic %s)\n", Version, backend.Version)
-		return 0
+		return a.version(args[1:])
 	}
 	if args[0] == "history" && len(args) > 1 && args[1] == "archive" {
 		return a.archiveHistory(ctx, args[2:])
@@ -320,6 +317,13 @@ func (a App) Run(ctx context.Context, args []string) int {
 		if len(positional) == 1 {
 			ref = positional[0]
 		}
+		if e := r.Validate(ctx); e != nil {
+			return fail(e)
+		}
+		if e := a.repositoryPassword(ctx, &r, false); e != nil {
+			return fail(e)
+		}
+		defer wipe(r.PasswordInput)
 		return a.rehearsal(ctx, r, ref, tempDir, full, sampleFiles, sampleBytes)
 	}
 	if cmd == "plan" || cmd == "doctor" || cmd == "status" || cmd == "retention" || cmd == "schedule" {
@@ -339,12 +343,26 @@ func (a App) Run(ctx context.Context, args []string) int {
 				positional = nil
 			}
 		}
+		if cmd != "status" && cmd != "schedule" {
+			if e := r.Validate(ctx); e != nil {
+				if cmd != "doctor" {
+					return fail(e)
+				}
+			} else if e := a.repositoryPassword(ctx, &r, false); e != nil {
+				return fail(e)
+			}
+			defer wipe(r.PasswordInput)
+		}
 		return a.workflow(ctx, cmd, r, selected, configPath, full, confirm, positional)
 	}
 	if !scheduled {
 		if err := r.Validate(ctx); err != nil {
 			return fail(err)
 		}
+		if e := a.repositoryPassword(ctx, &r, cmd == "init"); e != nil {
+			return fail(e)
+		}
+		defer wipe(r.PasswordInput)
 	}
 
 	var err error
@@ -403,14 +421,36 @@ func (a App) Run(ctx context.Context, args []string) int {
 		if err = require(0); err != nil {
 			break
 		}
-		opts := []string{"snapshots"}
-		if selected != nil {
-			opts = append(opts, "--tag", r.SnapshotTag, "--host", r.SnapshotHost)
+		listing := r
+		if cmd == "checkpoints" && selected == nil {
+			listing.SnapshotTag = "veyra:checkpoint"
 		}
-		if cmd == "checkpoints" {
-			opts = append(opts, "--tag", "veyra:checkpoint")
+		if r.JSON {
+			opts := []string{"snapshots"}
+			if listing.SnapshotTag != "" {
+				opts = append(opts, "--tag", listing.SnapshotTag)
+			}
+			if listing.SnapshotHost != "" {
+				opts = append(opts, "--host", listing.SnapshotHost)
+			}
+			err = r.Execute(ctx, opts...)
+		} else {
+			var snapshots []backend.Snapshot
+			snapshots, err = listing.Snapshots(ctx)
+			if err == nil {
+				if len(snapshots) == 0 {
+					fmt.Fprintln(out, "No matching snapshots.")
+				}
+				for _, snapshot := range snapshots {
+					labels, kind := snapshotLabels(snapshot.Tags)
+					fmt.Fprintf(out, "%s  %s  host=%q  %s", abbreviate(snapshot.ID, 12), snapshotDate(snapshot.Time), snapshot.Hostname, kind)
+					if labels != "" {
+						fmt.Fprintf(out, "  %q", labels)
+					}
+					fmt.Fprintln(out)
+				}
+			}
 		}
-		err = r.Execute(ctx, opts...)
 	case "find":
 		ref := "latest"
 		if len(positional) > 1 {

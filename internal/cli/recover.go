@@ -162,7 +162,7 @@ func (a App) recover(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.Out, "This backup has no confirmed completion. Recovery will still authenticate and verify the restored contents.")
 	}
 	if len(includes) == 0 {
-		fmt.Fprintln(a.Out, "Selection: entire snapshot")
+		fmt.Fprintln(a.Out, "Selection: entire selected root")
 	} else {
 		for _, v := range includes {
 			fmt.Fprintf(a.Out, "Include: %q\n", v)
@@ -267,7 +267,7 @@ func chooseFiles(p *prompts, r backend.Repository, id, scopeRoot string) ([]stri
 		for i, n := range nodes {
 			fmt.Fprintf(p.out, "%d. %-7s %q\n", i+1, n.Type, path.Base(n.Path))
 		}
-		s, e := p.line("Number opens a folder or selects a file; add N selects an entry. up, n, p, /search, all, clear, done:")
+		s, e := p.line("Number opens a folder or selects a file; add N selects an entry. up, n, p, /search, all (whole root), clear, done:")
 		if e != nil {
 			return nil, e
 		}

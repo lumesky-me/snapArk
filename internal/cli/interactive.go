@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/lumesky-me/veyra/internal/backend"
 	"io"
 	"os"
 	"strings"
@@ -112,4 +114,37 @@ func wipe(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
+}
+
+// Read a terminal credential once per CLI operation, rather than letting each
+// metadata/verification subprocess ask again. Explicit files and piped/scripted
+// input retain their existing behavior. All prompts go to stderr in JSON mode.
+func (a App) repositoryPassword(ctx context.Context, r *backend.Repository, confirm bool) error {
+	if r.PasswordFile != "" || len(r.PasswordInput) > 0 {
+		return nil
+	}
+	f, ok := a.In.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		return nil
+	}
+	p := &prompts{context: ctx, out: a.Err, input: f}
+	value, e := p.password()
+	if e != nil {
+		return e
+	}
+	if confirm {
+		fmt.Fprintln(a.Err, "Confirm the new repository password.")
+		again, e := p.password()
+		match := bytes.Equal(value, again)
+		wipe(again)
+		if e != nil || !match {
+			wipe(value)
+			if e != nil {
+				return e
+			}
+			return errors.New("passwords do not match; repository unchanged")
+		}
+	}
+	r.PasswordInput = value
+	return nil
 }
