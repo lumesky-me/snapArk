@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
 func TestChild(t *testing.T) {

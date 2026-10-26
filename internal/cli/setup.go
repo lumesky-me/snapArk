@@ -12,9 +12,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
-	"github.com/lumesky-me/veyra/internal/install"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
+	"github.com/lumesky-me/snapArk/internal/install"
 )
 
 func (a App) setup(ctx context.Context, args []string) int {
@@ -78,7 +78,7 @@ func (a App) setup(ctx context.Context, args []string) int {
 	if e != nil {
 		return fail(e)
 	} // Never replace an unreadable config.
-	fmt.Fprintf(a.Out, "Set up VEYRA on %s/%s. Type q to cancel.\nExecutable: %q\nProfiles: %q\n", runtime.GOOS, runtime.GOARCH, exe, store.Path)
+	fmt.Fprintf(a.Out, "Set up snapArk on %s/%s. Type q to cancel.\nExecutable: %q\nProfiles: %q\n", runtime.GOOS, runtime.GOARCH, exe, store.Path)
 	found, version, backendErr := backend.Backend(ctx, binary)
 	if backendErr != nil {
 		fmt.Fprintln(a.Out, backendErr)
@@ -202,7 +202,7 @@ func (a App) setup(ctx context.Context, args []string) int {
 			}
 		}
 	}
-	fmt.Fprintln(a.Out, "Encryption needs a password. Keep it in a password manager or offline safe place. A lost password cannot be recovered. VEYRA will not save a password entered here.")
+	fmt.Fprintln(a.Out, "Encryption needs a password. Keep it in a password manager or offline safe place. A lost password cannot be recovered. snapArk will not save a password entered here.")
 	if password == "" {
 		r.PasswordInput, e = p.password()
 		if e != nil {

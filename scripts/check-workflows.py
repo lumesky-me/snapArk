@@ -49,7 +49,7 @@ def main():
         parser.error('--memory needs Linux resource accounting')
     measurements = {'platform': platform.platform(), 'source_files': args.files,
                     'binary_mib': args.binary_mib, 'operations_seconds': {}, 'repository_bytes': [], 'peak_rss_kib': {}}
-    with tempfile.TemporaryDirectory(prefix='veyra regression 日本語 ') as tmp:
+    with tempfile.TemporaryDirectory(prefix='snapark regression 日本語 ') as tmp:
         work = Path(tmp)
         source, repo, cfg = work / 'project with spaces', work / 'repository', work / 'profiles.json'
         source.mkdir()

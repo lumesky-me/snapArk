@@ -56,6 +56,8 @@ type File struct {
 type Store struct{ Path string }
 
 func DefaultStore() (Store, error) {
+	// Keep the existing location for both commands; no implicit migration or
+	// second configuration tree may hide an installed user's profiles.
 	root, e := os.UserConfigDir()
 	return Store{Path: filepath.Join(root, "veyra", "profiles.json")}, e
 }
@@ -103,6 +105,7 @@ func (p Profile) Validate() error {
 // Scope changes with source/filter configuration; retention cannot reach an old
 // profile revision or another host merely because its name happens to match.
 func (p Profile) Tag() string {
+	// Version-one tags are persistent identity, shared with legacy veyra.
 	b, _ := json.Marshal(struct{ Sources, Include, Exclude []string }{p.Sources, p.Include, p.Exclude})
 	h := sha256.Sum256(b)
 	return "veyra:profile:" + p.ID + ":" + hex.EncodeToString(h[:8])
@@ -229,7 +232,7 @@ func (f File) Select(name string) (Profile, error) {
 	}
 	p, ok := f.Profiles[name]
 	if !ok {
-		return p, fmt.Errorf("profile %q not found; use veyra profile list", name)
+		return p, fmt.Errorf("profile %q not found; use snapark profile list", name)
 	}
 	return p, p.Validate()
 }

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/lumesky-me/veyra/internal/journal"
+	"github.com/lumesky-me/snapArk/internal/journal"
 )
 
 func (r Repository) Identity(ctx context.Context) (string, error) {

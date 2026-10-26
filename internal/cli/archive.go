@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
 func (a App) archiveHistory(ctx context.Context, args []string) int {
@@ -89,6 +89,6 @@ func (a App) archiveHistory(ctx context.Context, args []string) int {
 	if structured {
 		return encodeResult(a.Out, map[string]any{"result": "archived", "records": count, "destination": dest}, a.Err)
 	}
-	fmt.Fprintf(a.Out, "Archived %d records to %q. Inspect with veyra history --archive %q.\n", count, dest, dest)
+	fmt.Fprintf(a.Out, "Archived %d records to %q. Inspect with snapark history --archive %q.\n", count, dest, dest)
 	return 0
 }

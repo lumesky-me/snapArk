@@ -20,7 +20,7 @@ def main():
     systems = {"Linux": "linux", "Darwin": "darwin", "Windows": "windows"}
     arches = {"x86_64": "amd64", "AMD64": "amd64", "arm64": "arm64", "aarch64": "arm64"}
     system = systems[platform.system()]
-    target = f"veyra-{system}-{arches[platform.machine()]}"
+    target = f"snapark-{system}-{arches[platform.machine()]}"
     native = None
     script_root = Path(__file__).resolve().parent
     for line in (args.dir / "SHA256SUMS").read_text(encoding="ascii").splitlines():
@@ -35,7 +35,7 @@ def main():
             native = archive
     if native is None:
         raise ValueError("no archive for this native platform")
-    with tempfile.TemporaryDirectory(prefix="veyra package 日本語 ") as tmp:
+    with tempfile.TemporaryDirectory(prefix="snapark package 日本語 ") as tmp:
         if native.suffix == ".zip":
             with zipfile.ZipFile(native) as z:
                 z.extractall(tmp)
@@ -46,9 +46,15 @@ def main():
         for name in ("LICENSE", "THIRD-PARTY-LICENSES", "GO-LICENSE", "README.md", "SECURITY.md", "install-restic.py", "docs/profiles.md"):
             if not (root / name).is_file():
                 raise ValueError(f"missing distribution file: {name}")
-        binary = root / ("veyra.exe" if system == "windows" else "veyra")
+        binary = root / ("snapark.exe" if system == "windows" else "snapark")
+        legacy_alias = root / ("veyra.exe" if system == "windows" else "veyra")
+        if binary.read_bytes() != legacy_alias.read_bytes():
+            raise ValueError("legacy executable differs from current snapark")
+        alias_version = subprocess.check_output([str(legacy_alias), "version"], text=True)
+        if not alias_version.startswith("veyra "):
+            raise ValueError("legacy executable did not preserve its version prefix")
         output = subprocess.check_output([str(binary), "version"], text=True)
-        if not output.startswith("veyra ") or "requires restic 0.18.1" not in output:
+        if not output.startswith("snapark ") or "requires restic 0.18.1" not in output:
             raise ValueError("unexpected standalone version output")
         build = json.loads(subprocess.check_output([str(binary), "version", "--json"], text=True))
         if build["os"] != system or build["arch"] != arches[platform.machine()] or len(build["revision"]) != 40:
@@ -140,6 +146,11 @@ def main():
         if scheduled.returncode:
             raise RuntimeError("native scheduled backup failed: " + scheduled.stdout + scheduled.stderr)
         print(scheduled.stdout, end="")
+        upgrade = subprocess.run([sys.executable, str(script_root / "check-upgrade.py"), "--binary", str(binary)],
+                                 cwd=work, capture_output=True, text=True, timeout=600)
+        if upgrade.returncode:
+            raise RuntimeError("legacy upgrade workflow failed: " + upgrade.stdout + upgrade.stderr)
+        print(upgrade.stdout, end="")
         print("Packaged installation, profiles, backup, recovery and history verified outside the checkout")
         print(output.strip())
         print("Archive checksums, distribution contents, and native executable verified")

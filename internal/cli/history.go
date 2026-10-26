@@ -9,9 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
-	"github.com/lumesky-me/veyra/internal/journal"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
+	"github.com/lumesky-me/snapArk/internal/journal"
 )
 
 func historyStore(path string) (journal.Store, error) {

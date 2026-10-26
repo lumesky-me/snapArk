@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
-	"github.com/lumesky-me/veyra/internal/scheduler"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
+	"github.com/lumesky-me/snapArk/internal/scheduler"
 )
 
 func nativeCommand(ctx context.Context) scheduler.Command {

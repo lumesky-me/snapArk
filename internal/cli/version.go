@@ -4,10 +4,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
 // Version can be set when preparing a later authorized release. Development
@@ -44,7 +47,14 @@ func (a App) version(args []string) int {
 	if structured {
 		return encodeResult(a.Out, map[string]any{"version": Version, "revision": revision, "modified": modified, "go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "restic_version": backend.Version}, a.Err)
 	}
-	if _, e := fmt.Fprintf(a.Out, "veyra %s (requires restic %s)\n%s/%s %s revision=%s modified=%t\n", Version, backend.Version, runtime.GOOS, runtime.GOARCH, runtime.Version(), revision, modified); e != nil {
+	name := "snapark"
+	if exe, e := os.Executable(); e == nil {
+		base := filepath.Base(exe)
+		if strings.EqualFold(base, "veyra") || strings.EqualFold(base, "veyra.exe") {
+			name = "veyra"
+		}
+	}
+	if _, e := fmt.Fprintf(a.Out, "%s %s (requires restic %s)\n%s/%s %s revision=%s modified=%t\n", name, Version, backend.Version, runtime.GOOS, runtime.GOARCH, runtime.Version(), revision, modified); e != nil {
 		return 1
 	}
 	return 0

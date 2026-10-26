@@ -15,8 +15,8 @@ import (
 )
 
 func TestTaskSchedulerNative(t *testing.T) {
-	if os.Getenv("VEYRA_NATIVE_SCHEDULER_TESTS") != "1" {
-		t.Skip("set VEYRA_NATIVE_SCHEDULER_TESTS=1 for disposable Task Scheduler lifecycle test")
+	if os.Getenv("SNAPARK_NATIVE_SCHEDULER_TESTS") != "1" && os.Getenv("VEYRA_NATIVE_SCHEDULER_TESTS") != "1" {
+		t.Skip("set SNAPARK_NATIVE_SCHEDULER_TESTS=1 for disposable Task Scheduler lifecycle test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

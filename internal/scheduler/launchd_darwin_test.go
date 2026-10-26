@@ -27,8 +27,8 @@ func TestLaunchPlistNative(t *testing.T) {
 	}
 }
 func TestLaunchdNative(t *testing.T) {
-	if os.Getenv("VEYRA_NATIVE_SCHEDULER_TESTS") != "1" {
-		t.Skip("set VEYRA_NATIVE_SCHEDULER_TESTS=1 for disposable launchd lifecycle test")
+	if os.Getenv("SNAPARK_NATIVE_SCHEDULER_TESTS") != "1" && os.Getenv("VEYRA_NATIVE_SCHEDULER_TESTS") != "1" {
+		t.Skip("set SNAPARK_NATIVE_SCHEDULER_TESTS=1 for disposable launchd lifecycle test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

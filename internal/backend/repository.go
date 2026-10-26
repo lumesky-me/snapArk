@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lumesky-me/veyra/internal/journal"
+	"github.com/lumesky-me/snapArk/internal/journal"
 	"io"
 	"os"
 	"os/exec"
@@ -47,7 +47,7 @@ func Environment() []string {
 	for _, e := range os.Environ() {
 		k, _, _ := strings.Cut(e, "=")
 		u := strings.ToUpper(k)
-		if strings.HasPrefix(u, "RESTIC_") || strings.HasPrefix(u, "VEYRA_") || strings.HasSuffix(u, "_TOKEN") || strings.HasSuffix(u, "_PASSWORD") || strings.HasSuffix(u, "_SECRET") || strings.HasSuffix(u, "_API_KEY") {
+		if strings.HasPrefix(u, "RESTIC_") || strings.HasPrefix(u, "VEYRA_") || strings.HasPrefix(u, "SNAPARK_") || strings.HasSuffix(u, "_TOKEN") || strings.HasSuffix(u, "_PASSWORD") || strings.HasSuffix(u, "_SECRET") || strings.HasSuffix(u, "_API_KEY") {
 			continue
 		}
 		env = append(env, e)
@@ -91,7 +91,7 @@ func Backend(ctx context.Context, binary string) (string, string, error) {
 	}
 	located, e := exec.LookPath(binary)
 	if e != nil {
-		return "", "", fmt.Errorf("restic %s is required; run veyra setup: %w", Version, e)
+		return "", "", fmt.Errorf("restic %s is required; run snapark setup: %w", Version, e)
 	}
 	binary, e = filepath.Abs(located)
 	if e != nil {

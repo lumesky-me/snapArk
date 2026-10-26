@@ -17,7 +17,7 @@ import (
 
 const Limit = 1000
 
-var ErrRunBusy = errors.New("a VEYRA run is active or its lock needs manual review; no lock was stolen")
+var ErrRunBusy = errors.New("a snapArk run is active or its lock needs manual review; no lock was stolen")
 
 type Record struct {
 	MetadataVerified  bool       `json:"metadata_verified"`
@@ -36,7 +36,7 @@ type Record struct {
 	Scope             string     `json:"snapshot_scope,omitempty"`
 	Snapshot          string     `json:"snapshot,omitempty"`
 	Files             []string   `json:"tested_files,omitempty"`
-	Veyra             string     `json:"veyra_version"`
+	Veyra             string     `json:"veyra_version"` // Keep the version-one key readable by both commands.
 	Restic            string     `json:"restic_version"`
 }
 type Store struct{ Dir string }

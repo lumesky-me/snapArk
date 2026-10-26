@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 	"io"
 	"net/http"
 	"os"
@@ -79,7 +79,7 @@ func decode(name string, archive []byte, digest string) ([]byte, error) {
 }
 
 // Install never overwrites an executable or changes PATH. Checksums are embedded
-// in VEYRA, so a replaced remote checksum manifest cannot authorize a new binary.
+// in snapArk, so a replaced remote checksum manifest cannot authorize a new binary.
 func Install(ctx context.Context, dir string) (string, error) {
 	name, digest, e := Artifact()
 	if e != nil {

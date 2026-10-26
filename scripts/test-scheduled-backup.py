@@ -16,9 +16,10 @@ from workflow_helpers import protect_windows_file
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--legacy-binary', type=Path, help='install an old CLI schedule, then manage it with the current CLI')
     args = parser.parse_args()
-    if os.environ.get('VEYRA_NATIVE_SCHEDULER_TESTS') != '1':
-        print('::notice::SKIP native backup execution: set VEYRA_NATIVE_SCHEDULER_TESTS=1 to opt in')
+    if os.environ.get('SNAPARK_NATIVE_SCHEDULER_TESTS') != '1' and os.environ.get('VEYRA_NATIVE_SCHEDULER_TESTS') != '1':
+        print('::notice::SKIP native backup execution: set SNAPARK_NATIVE_SCHEDULER_TESTS=1 to opt in')
         return
     system = platform.system()
     if system == 'Linux':
@@ -37,7 +38,7 @@ def main():
     elif system == 'Darwin':
         subprocess.run(['/bin/launchctl', 'print', f'gui/{os.getuid()}'], check=True, capture_output=True)
     binary = args.binary.resolve()
-    with tempfile.TemporaryDirectory(prefix='veyra schedule 日本語 ') as tmp:
+    with tempfile.TemporaryDirectory(prefix='snapark schedule 日本語 ') as tmp:
         work = Path(tmp)
         source, repo, cfg = work / 'source with spaces', work / 'repository', work / 'settings.json'
         source.mkdir()
@@ -49,7 +50,11 @@ def main():
         name = 'test-' + uuid.uuid4().hex[:12]
 
         def run(command, *argv, expect=0):
-            result = subprocess.run([str(binary), command, *map(str, argv)], cwd=work,
+            selected = binary
+            if args.legacy_binary and (command in ('profile', 'init') or
+                                       command == 'schedule' and argv[-1] == 'install' and expect == 0):
+                selected = args.legacy_binary.resolve()
+            result = subprocess.run([str(selected), command, *map(str, argv)], cwd=work,
                                     capture_output=True, text=True, timeout=60)
             if result.returncode != expect:
                 raise RuntimeError(f'{command}: exit {result.returncode}, expected {expect}: {result.stdout} {result.stderr}')
@@ -176,7 +181,8 @@ else{throw 'Unknown operation'}
                     schedule('remove')
                 if schedule('status')['state'] != 'missing':
                     raise RuntimeError('disposable native schedule was not removed')
-        print(f'::notice::Native {system} schedule preview/install/status/disable/enable/remove, successful backup, unavailable-drive failure, retry and recovery passed')
+        scope = 'Legacy schedule upgrade on' if args.legacy_binary else 'Native'
+        print(f'::notice::{scope} {system} schedule preview/install/status/disable/enable/remove, successful backup, unavailable-drive failure, retry and recovery passed')
 
 
 if __name__ == '__main__':

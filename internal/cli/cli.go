@@ -1,4 +1,4 @@
-// Package cli implements VEYRA's command-line interface.
+// Package cli implements snapArk's command-line interface.
 package cli
 
 import (
@@ -13,14 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
-	"github.com/lumesky-me/veyra/internal/project"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
+	"github.com/lumesky-me/snapArk/internal/project"
 )
 
-const help = `VEYRA — encrypted backups and developer recovery (experimental)
+const help = `snapArk — encrypted backups and developer recovery (experimental)
 
-Usage: veyra COMMAND [OPTIONS] [ARGUMENTS]
+Usage: snapark COMMAND [OPTIONS] [ARGUMENTS]
 
 Commands:
   recover       Guided recovery into a new directory
@@ -54,8 +54,8 @@ Commands:
   help          Show help
 
 Repository commands accept --repo PATH, --password-file PATH, --json, --quiet.
-Flags precede positional arguments. Without a password file, restic securely
-prompts on the terminal. Passwords are never accepted as command arguments.
+Flags precede positional arguments. Without a password file, enter a hidden
+password once per command in a terminal. There is no password argument.
 Use COMMAND --help for command options.
 `
 
@@ -113,7 +113,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	switch cmd {
 	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore", "credentials", "inspect-restore":
 	default:
-		fmt.Fprintf(a.Err, "unknown command %q; use veyra help\n", cmd)
+		fmt.Fprintf(a.Err, "unknown command %q; use snapark help\n", cmd)
 		return 2
 	}
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)

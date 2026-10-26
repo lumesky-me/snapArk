@@ -5,14 +5,14 @@ import (
 	"io"
 	"sort"
 
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
 func humanWorkflow(out io.Writer, value any) error {
 	switch v := value.(type) {
 	case []overview:
 		if len(v) == 0 {
-			_, e := fmt.Fprintln(out, "No backup profiles. Run veyra setup or profile add.")
+			_, e := fmt.Fprintln(out, "No backup profiles. Run snapark setup or profile add.")
 			return e
 		}
 		for _, row := range v {
@@ -32,7 +32,7 @@ func humanWorkflow(out io.Writer, value any) error {
 				fmt.Fprintf(out, "  Warning: %s\n", row.HistoryWarning)
 			}
 			if row.LastBackup != nil && row.LastBackup.Outcome != "passed" {
-				fmt.Fprintf(out, "  Backup attempt: %s (%s); inspect veyra history and check for an active process before retrying.\n", row.LastBackup.ID, row.LastBackup.Outcome)
+				fmt.Fprintf(out, "  Backup attempt: %s (%s); inspect snapark history and check for an active process before retrying.\n", row.LastBackup.ID, row.LastBackup.Outcome)
 			}
 		}
 	case backend.Plan:

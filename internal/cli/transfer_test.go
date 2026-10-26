@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/lumesky-me/veyra/internal/config"
+	"github.com/lumesky-me/snapArk/internal/config"
 	"os"
 	"path/filepath"
 	"testing"

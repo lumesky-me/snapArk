@@ -1,7 +1,7 @@
 package project
 
 import (
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 	"os/exec"
 	"strconv"
 	"time"

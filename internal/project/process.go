@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/lumesky-me/veyra/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
 type RunOptions struct {

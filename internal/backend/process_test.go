@@ -101,6 +101,7 @@ func TestEnvironmentFiltersCredentials(t *testing.T) {
 	t.Setenv("GH_TOKEN", "must-not-leak")
 	t.Setenv("SERVICE_API_KEY", "must-not-leak")
 	t.Setenv("VEYRA_PRIVATE", "must-not-leak")
+	t.Setenv("SNAPARK_PRIVATE", "must-not-leak")
 	t.Setenv("NORMAL_BUILD_SETTING", "kept")
 	env := strings.Join(Environment(), "\n")
 	if strings.Contains(env, "must-not-leak") {

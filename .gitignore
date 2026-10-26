@@ -5,3 +5,5 @@
 coverage.out
 __pycache__/
 /dist/
+/snapark
+/snapark.exe

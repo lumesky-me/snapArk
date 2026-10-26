@@ -103,7 +103,7 @@ def main():
                   "os.close(0); os.close(1); os.close(2); time.sleep(0.05)"], [], "unused secret")
     if "final report" not in final:
         raise RuntimeError("terminal output was lost at process exit")
-    with tempfile.TemporaryDirectory(prefix="veyra terminal ü ") as tmp:
+    with tempfile.TemporaryDirectory(prefix="snapark terminal ü ") as tmp:
         root = Path(tmp)
         source = root / "source"
         source.mkdir()

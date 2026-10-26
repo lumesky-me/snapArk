@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/journal"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/journal"
 )
 
 func (a App) rehearsal(ctx context.Context, r backend.Repository, ref, parent string, full bool, sampleFiles int, sampleBytes int64) int {
@@ -47,7 +47,7 @@ func (a App) rehearsal(ctx context.Context, r backend.Repository, ref, parent st
 	if e != nil {
 		return fail(e)
 	}
-	root, e := os.MkdirTemp(actualParent, "veyra-rehearsal-"+event.ID+"-*")
+	root, e := os.MkdirTemp(actualParent, "snapark-rehearsal-"+event.ID+"-*")
 	if e == nil {
 		target := filepath.Join(root, "recovered")
 		runner := r

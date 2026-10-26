@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
 )
 
 func configStore(path string) (config.Store, error) {
@@ -24,7 +24,7 @@ func configStore(path string) (config.Store, error) {
 }
 func (a App) profile(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(a.Out, "Usage: veyra profile add|list|show|export|import|replace|validate|delete|default [options] NAME\nProfiles contain no passwords. add/replace accept --repo, repeated --source, --include (relative paths), --exclude, --label, --verify metadata|full, --expected-hours and --keep-* retention counts. Options precede NAME. --config selects an alternative configuration file.")
+		fmt.Fprintln(a.Out, "Usage: snapark profile add|list|show|export|import|replace|validate|delete|default [options] NAME\nProfiles contain no passwords. add/replace accept --repo, repeated --source, --include (relative paths), --exclude, --label, --verify metadata|full, --expected-hours and --keep-* retention counts. Options precede NAME. --config selects an alternative configuration file.")
 		return 0
 	}
 	action := args[0]
@@ -246,7 +246,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 			return nil
 		})
 	default:
-		return fail(errors.New("unknown profile operation; use veyra profile"))
+		return fail(errors.New("unknown profile operation; use snapark profile"))
 	}
 	if e != nil {
 		return fail(e)

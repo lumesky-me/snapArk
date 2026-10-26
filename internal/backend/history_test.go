@@ -3,7 +3,7 @@ package backend
 import (
 	"context"
 	"crypto/rand"
-	"github.com/lumesky-me/veyra/internal/journal"
+	"github.com/lumesky-me/snapArk/internal/journal"
 	"io"
 	"os"
 	"path/filepath"

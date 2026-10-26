@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build standalone VEYRA archives and SHA256SUMS; never publish a release."""
+"""Build standalone snapArk archives and SHA256SUMS; never publish a release."""
 import argparse
 import datetime
 import gzip
@@ -35,7 +35,7 @@ def archive_files(stage, name, archive, system, epoch):
                     info = tarfile.TarInfo(f'{name}/{file.relative_to(stage).as_posix()}')
                     info.size = file.stat().st_size
                     info.mtime = epoch
-                    info.mode = 0o755 if file.name == 'veyra' else 0o644
+                    info.mode = 0o755 if file.name in ('snapark', 'veyra') else 0o644
                     with file.open('rb') as data:
                         tar.addfile(info, data)
 
@@ -53,13 +53,16 @@ def main():
         ['git', 'show', '-s', '--format=%ct', 'HEAD'], cwd=ROOT, text=True).strip())
     for target in args.target or TARGETS:
         system, arch = target.split("-")
-        name = f"veyra-{target}"
+        name = f"snapark-{target}"
         with tempfile.TemporaryDirectory() as tmp:
             stage = Path(tmp) / name
             stage.mkdir()
             env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0")
-            binary = stage / ("veyra.exe" if system == "windows" else "veyra")
-            subprocess.run([go, "build", "-trimpath", "-buildvcs=true", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
+            binary = stage / ("snapark.exe" if system == "windows" else "snapark")
+            subprocess.run([go, "build", "-trimpath", "-buildvcs=true", "-o", str(binary), "./cmd/snapark"], cwd=ROOT, env=env, check=True)
+            # Keep the legacy executable as the same current program for scripts
+            # and existing scheduler actions. No old backend or app is bundled.
+            shutil.copyfile(binary, stage / ("veyra.exe" if system == "windows" else "veyra"))
             for file in ("THIRD-PARTY-LICENSES", "README.md", "SECURITY.md"):
                 shutil.copyfile(ROOT / file, stage / file)
             shutil.copyfile(ROOT / "LICENSE.md", stage / "LICENSE")

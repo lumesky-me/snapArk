@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lumesky-me/veyra/internal/backend"
-	"github.com/lumesky-me/veyra/internal/config"
+	"github.com/lumesky-me/snapArk/internal/backend"
+	"github.com/lumesky-me/snapArk/internal/config"
 )
 
 func (a App) recover(ctx context.Context, args []string) int {

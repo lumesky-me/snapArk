@@ -1,4 +1,4 @@
-module github.com/lumesky-me/veyra
+module github.com/lumesky-me/snapArk
 
 go 1.25.0
 
