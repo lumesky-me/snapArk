@@ -29,6 +29,7 @@ Commands:
   profile       Manage named backup profiles
   plan          Preview a backup without creating snapshots
   doctor        Diagnose configuration and repository access
+  credentials   Check password-file permissions for unattended use
   status        Show authoritative profile backup freshness
   retention     Preview scoped retention (--confirm applies)
   schedule      Generate native scheduler definitions (never installs)
@@ -96,7 +97,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	cmd := args[0]
 	switch cmd {
-	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore":
+	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore", "credentials":
 	default:
 		fmt.Fprintf(a.Err, "unknown command %q; use veyra help\n", cmd)
 		return 2
@@ -207,6 +208,24 @@ func (a App) Run(ctx context.Context, args []string) int {
 				fmt.Fprintf(out, "%s %q\n", e.Status, e.Path)
 			}
 		}
+		return 0
+	}
+	if cmd == "credentials" {
+		if e := require(0); e != nil {
+			return fail(e)
+		}
+		if r.PasswordFile == "" {
+			return fail(errors.New("provide --password-file; this check never changes permissions"))
+		}
+		release, e := backend.ProtectPassword(r.PasswordFile)
+		if e != nil {
+			return fail(e)
+		}
+		release()
+		if r.JSON {
+			return encodeResult(out, map[string]string{"state": "accepted", "detail": "permissions checked for the current account; no permissions changed"}, a.Err)
+		}
+		fmt.Fprintln(out, "Password-file permissions accepted for the current account; no permissions changed.")
 		return 0
 	}
 	if profileName != "" || r.Path == "" {

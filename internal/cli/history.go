@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"runtime"
 
 	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
@@ -92,19 +91,20 @@ func (a App) scheduled(ctx context.Context, r backend.Repository, p *config.Prof
 	if !filepath.IsAbs(r.PasswordFile) {
 		return "", errors.New("scheduled password-file path must be absolute")
 	}
-	if runtime.GOOS == "windows" {
-		return "", errors.New("unattended Windows execution is unavailable until password-file ACL validation is implemented; use explicit previews/manual protected execution")
-	}
-
 	event, e := r.History.Begin(journal.Record{Kind: "scheduled-run", Profile: p.ID, Depth: p.Verify, Veyra: Version, Restic: backend.Version})
 	if e != nil {
 		return "", e
 	}
-	id, e := operation()
-	event.Snapshot = id
-	if identity, err := r.Identity(ctx); err == nil {
-		event.Repository = identity
+	var id string
+	release, e := backend.ProtectPassword(r.PasswordFile)
+	if e == nil {
+		defer release()
+		id, e = operation()
+		if identity, err := r.Identity(ctx); err == nil {
+			event.Repository = identity
+		}
 	}
+	event.Snapshot = id
 	outcome, category := "passed", ""
 	if e != nil {
 		outcome = "failed"
