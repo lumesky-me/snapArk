@@ -61,10 +61,13 @@ func TestTaskSchedulerNative(t *testing.T) {
 	if s, e := m.Status(); e != nil || s.State != "disabled" {
 		t.Fatal(s, e)
 	}
-	if e = m.Apply("enable", ""); e != nil {
+	if e = m.Apply("replace", strings.ReplaceAll(definition, "/c exit 0", "/c exit 1")); e != nil {
 		t.Fatal(e)
 	}
-	if e = m.Apply("replace", strings.ReplaceAll(definition, "/c exit 0", "/c exit 1")); e != nil {
+	if s, e := m.Status(); e != nil || s.State != "disabled" {
+		t.Fatal("replacement enabled a disabled task", s, e)
+	}
+	if e = m.Apply("enable", ""); e != nil {
 		t.Fatal(e)
 	}
 	// A manager for a different config cannot claim this task.

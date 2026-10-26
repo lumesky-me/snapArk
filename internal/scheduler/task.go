@@ -37,7 +37,12 @@ try {
    if ($null -ne $t) { throw 'A task already exists; nothing overwritten.' }
    $t = $f.RegisterTask([string]$r.name,[string]$r.xml,2,$null,$null,3,$null)
   }
-  'replace' { $t = $f.RegisterTask([string]$r.name,[string]$r.xml,4,$null,$null,3,$null) }
+  'replace' {
+   $d = $s.NewTask(0)
+   $d.XmlText = [string]$r.xml
+   $d.Settings.Enabled = [bool]$t.Enabled
+   $t = $f.RegisterTaskDefinition([string]$r.name,$d,4,$null,$null,3,$null)
+  }
   'enable' { $t.Enabled = $true }
   'disable' { $t.Enabled = $false }
   'remove' { $f.DeleteTask([string]$r.name,0); $t = $null }

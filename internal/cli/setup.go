@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
@@ -38,6 +39,16 @@ func (a App) setup(ctx context.Context, args []string) int {
 	if fs.NArg() != 0 {
 		return fail(errors.New("setup accepts options only"))
 	}
+	exe, e := os.Executable()
+	if e != nil {
+		return fail(e)
+	}
+	invocation := shellArgument(exe)
+	shell := "shell"
+	if runtime.GOOS == "windows" {
+		invocation = "& " + invocation
+		shell = "PowerShell"
+	}
 	if installOnly {
 		if !confirm || dir == "" {
 			return fail(errors.New("download and installation require --dir PATH --confirm; existing files and PATH are never changed"))
@@ -49,7 +60,7 @@ func (a App) setup(ctx context.Context, args []string) int {
 		if structured {
 			return encodeResult(a.Out, map[string]string{"installed": installed, "version": install.Version}, a.Err)
 		}
-		fmt.Fprintf(a.Out, "Installed verified restic %s at %q. PATH unchanged.\nRun veyra setup --restic %q to create a profile.\n", install.Version, installed, installed)
+		fmt.Fprintf(a.Out, "Installed verified restic %s at %q. PATH unchanged.\nRun in %s: %s setup --restic %s\n", install.Version, installed, shell, invocation, shellArgument(installed))
 		return 0
 	}
 	if structured {
@@ -67,10 +78,6 @@ func (a App) setup(ctx context.Context, args []string) int {
 	if e != nil {
 		return fail(e)
 	} // Never replace an unreadable config.
-	exe, e := os.Executable()
-	if e != nil {
-		return fail(e)
-	}
 	fmt.Fprintf(a.Out, "Set up VEYRA on %s/%s. Type q to cancel.\nExecutable: %q\nProfiles: %q\n", runtime.GOOS, runtime.GOARCH, exe, store.Path)
 	found, version, backendErr := backend.Backend(ctx, binary)
 	if backendErr != nil {
@@ -299,6 +306,15 @@ func (a App) setup(ctx context.Context, args []string) int {
 	} else {
 		fmt.Fprintln(a.Out, "No initial backup created.")
 	}
-	fmt.Fprintf(a.Out, "\nNext: veyra backup --config %q --profile %s\nRecover: veyra recover --config %q --profile %s\nScheduling is separate: inspect veyra schedule preview --config %q --profile %s --password-file PATH\n", store.Path, name, store.Path, name, store.Path, name)
+	fmt.Fprintf(a.Out, "\nNext commands (%s):\nBackup: %s backup --config %s --profile %s\nRecover: %s recover --config %s --profile %s\nScheduling is separate: %s schedule preview --config %s --profile %s --password-file PATH\n", shell, invocation, shellArgument(store.Path), name, invocation, shellArgument(store.Path), name, invocation, shellArgument(store.Path), name)
 	return 0
+}
+
+// These are copyable command examples. Actual process execution uses literal
+// argv everywhere; it never sends these strings to a shell.
+func shellArgument(value string) string {
+	if runtime.GOOS == "windows" {
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

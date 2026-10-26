@@ -18,6 +18,16 @@ func (m Manager) paths() []string {
 	return []string{filepath.Join(m.Dir, m.Name+".service"), filepath.Join(m.Dir, m.Name+".timer")}
 }
 func (m Manager) header() string { return "# VEYRA owner=" + m.Owner + "\n" }
+func (m Manager) lock() (func(), error) {
+	if e := os.MkdirAll(m.Dir, 0700); e != nil {
+		return nil, e
+	}
+	p := filepath.Join(m.Dir, "."+m.Name+".veyra-lock")
+	if e := os.Mkdir(p, 0700); e != nil {
+		return nil, fmt.Errorf("scheduler busy or interrupted; inspect %s without stealing its lock: %w", p, e)
+	}
+	return func() { _ = os.Remove(p) }, nil
+}
 func (m Manager) Owned() error {
 	for _, p := range m.paths() {
 		info, e := os.Lstat(p)
@@ -43,9 +53,11 @@ func (m Manager) Owned() error {
 	return nil
 }
 func (m Manager) Install(files map[string]string) error {
-	if e := os.MkdirAll(m.Dir, 0700); e != nil {
+	release, e := m.lock()
+	if e != nil {
 		return e
 	}
+	defer release()
 	// No overwrites: an update is an explicit remove followed by installation.
 	created := []string{}
 	rollback := func() {
@@ -90,19 +102,37 @@ func (m Manager) Install(files map[string]string) error {
 	return nil
 }
 func (m Manager) Disable() error {
+	release, e := m.lock()
+	if e != nil {
+		return e
+	}
+	defer release()
+	return m.disable()
+}
+func (m Manager) disable() error {
 	if e := m.Owned(); e != nil {
 		return e
 	}
 	return m.Run("disable", "--now", m.Name+".timer")
 }
 func (m Manager) Enable() error {
+	release, e := m.lock()
+	if e != nil {
+		return e
+	}
+	defer release()
 	if e := m.Owned(); e != nil {
 		return e
 	}
 	return m.Run("enable", "--now", m.Name+".timer")
 }
 func (m Manager) Remove() error {
-	if e := m.Disable(); e != nil {
+	release, e := m.lock()
+	if e != nil {
+		return e
+	}
+	defer release()
+	if e := m.disable(); e != nil {
 		return e
 	}
 	for _, p := range m.paths() {

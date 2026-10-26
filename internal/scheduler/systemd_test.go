@@ -55,3 +55,29 @@ func TestInstallRollback(t *testing.T) {
 		}
 	}
 }
+
+func TestConcurrentSystemdChangeRefused(t *testing.T) {
+	m := Manager{Dir: t.TempDir(), Name: "veyra-app", Owner: "profile:config"}
+	checked := false
+	m.Run = func(args ...string) error {
+		if !checked && args[0] == "daemon-reload" {
+			checked = true
+			if e := m.Remove(); e == nil {
+				t.Fatal("removal raced an unfinished installation")
+			}
+		}
+		return nil
+	}
+	if e := m.Install(map[string]string{"veyra-app.service": "[Service]\n", "veyra-app.timer": "[Timer]\n"}); e != nil {
+		t.Fatal(e)
+	}
+	if !checked {
+		t.Fatal("concurrent operation was not exercised")
+	}
+	if e := m.Owned(); e != nil {
+		t.Fatal("concurrent operation damaged definitions", e)
+	}
+	if e := m.Remove(); e != nil {
+		t.Fatal("lock was not released after installation", e)
+	}
+}

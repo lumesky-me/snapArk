@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
@@ -153,6 +154,13 @@ func (a App) recover(ctx context.Context, args []string) int {
 		}
 	}
 	fmt.Fprintf(a.Out, "\nRepository: %q\nRepository identity: %s\nSnapshot: %s (%s, host %q)\nSnapshot root: %q\nDestination: %q\n", repo, identity, snapshot.ID, snapshot.Time, snapshot.Hostname, scopeRoot, actual)
+	labels, kind := snapshotLabels(snapshot.Tags)
+	if labels != "" {
+		fmt.Fprintf(a.Out, "Labels: %q\n", labels)
+	}
+	if kind == "unfinished backup" {
+		fmt.Fprintln(a.Out, "This backup has no confirmed completion. Recovery will still authenticate and verify the restored contents.")
+	}
 	if len(includes) == 0 {
 		fmt.Fprintln(a.Out, "Selection: entire snapshot")
 	} else {
@@ -192,7 +200,7 @@ func chooseSnapshot(p *prompts, snapshots []backend.Snapshot) (backend.Snapshot,
 	for {
 		matches := []backend.Snapshot{}
 		for _, s := range snapshots {
-			if strings.Contains(strings.ToLower(s.Time+" "+s.Hostname+" "+s.ID+" "+strings.Join(s.Tags, " ")), strings.ToLower(query)) {
+			if strings.Contains(strings.ToLower(s.Time+" "+snapshotDate(s.Time)+" "+s.Hostname+" "+s.ID+" "+strings.Join(s.Tags, " ")), strings.ToLower(query)) {
 				matches = append(matches, s)
 			}
 		}
@@ -211,7 +219,12 @@ func chooseSnapshot(p *prompts, snapshots []backend.Snapshot) (backend.Snapshot,
 		fmt.Fprintln(p.out, "\nSnapshots (all hosts and profile revisions):")
 		for i := start; i < end; i++ {
 			s := matches[i]
-			fmt.Fprintf(p.out, "%d. %s host=%q ID=%s labels=%q\n", i-start+1, s.Time, s.Hostname, s.ID, strings.Join(s.Tags, ", "))
+			labels, kind := snapshotLabels(s.Tags)
+			fmt.Fprintf(p.out, "%d. %s  ID=%s\n   host=%s  %s", i-start+1, snapshotDate(s.Time), abbreviate(s.ID, 12), abbreviate(strconv.Quote(s.Hostname), 30), kind)
+			if labels != "" {
+				fmt.Fprint(p.out, "  "+abbreviate(strconv.Quote(labels), 45))
+			}
+			fmt.Fprintln(p.out)
 		}
 		s, e := p.line("Snapshot number, n/p for pages, or /text to search dates, labels, hosts and IDs:")
 		if e != nil {
@@ -317,4 +330,44 @@ func chooseFiles(p *prompts, r backend.Repository, id, scopeRoot string) ([]stri
 			}
 		}
 	}
+}
+
+func snapshotDate(value string) string {
+	if instant, e := time.Parse(time.RFC3339Nano, value); e == nil {
+		return instant.Local().Format("2006-01-02 15:04 Z07:00")
+	}
+	return strconv.Quote(value)
+}
+func snapshotLabels(tags []string) (string, string) {
+	kind := "snapshot"
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "veyra:") {
+			if strings.HasSuffix(tag, ":pending") {
+				return userLabels(tags), "unfinished backup"
+			}
+			if strings.HasSuffix(tag, ":checkpoint") {
+				kind = "checkpoint"
+			} else if strings.HasSuffix(tag, ":complete") {
+				kind = "backup"
+			}
+		}
+	}
+	return userLabels(tags), kind
+}
+
+func userLabels(tags []string) string {
+	var labels []string
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "veyra:") {
+			labels = append(labels, tag)
+		}
+	}
+	return strings.Join(labels, ", ")
+}
+func abbreviate(value string, limit int) string {
+	r := []rune(value)
+	if len(r) <= limit {
+		return value
+	}
+	return string(r[:limit]) + "…"
 }

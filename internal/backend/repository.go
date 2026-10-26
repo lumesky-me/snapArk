@@ -131,6 +131,12 @@ func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 	c := exec.CommandContext(ctx, binary, append(base, args...)...)
 	c.Env = Environment()
 	c.Stdin = os.Stdin
+	// A supplied password file is the only credential source. Restic can fall
+	// back to a terminal prompt when its trimmed contents are empty; unattended
+	// execution must fail instead of waiting for someone to type a password.
+	if r.PasswordFile != "" {
+		c.Stdin = nil
+	}
 	if len(r.PasswordInput) > 0 {
 		c.Stdin = io.MultiReader(bytes.NewReader(r.PasswordInput), strings.NewReader("\n"))
 	}

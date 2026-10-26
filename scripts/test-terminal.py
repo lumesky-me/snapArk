@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import select
+import shlex
 import sys
 import tempfile
 import time
@@ -53,11 +54,17 @@ def drive(binary, args, answers, secret, expected_exit=0):
                     reaped = True
                     # A fast child may exit before its final terminal output is
                     # read. Drain the PTY to EOF before assessing its report.
-        if status is None:
-            result, status = os.waitpid(pid, os.WNOHANG)
-            if not result:
-                raise RuntimeError("interactive command did not finish before deadline")
-            reaped = True
+        # On macOS the slave can reach EOF a little before the child becomes
+        # waitable. EOF is not a timeout; keep the same bounded exit deadline.
+        while not reaped and time.monotonic() < deadline:
+            result, child_status = os.waitpid(pid, os.WNOHANG)
+            if result:
+                status = child_status
+                reaped = True
+            else:
+                time.sleep(0.01)
+        if not reaped:
+            raise RuntimeError("interactive command did not finish before deadline")
         output = transcript.decode("utf-8", errors="replace")
         if secret in output:
             raise RuntimeError("hidden password appeared in terminal output")
@@ -85,14 +92,21 @@ def main():
         print("PTY workflow uses Unix terminals; Windows controlled-input workflows run in Go tests")
         return
     binary = args.binary.resolve()
+    # Exercise the observed EOF-before-exit case deterministically, alongside
+    # real terminal workflows below. Closing descriptors must not lose output
+    # or turn an ordinary process exit into a false timeout.
+    final = drive(Path(sys.executable), ["-c", "import os,time; print('final report',flush=True); "
+                  "os.close(0); os.close(1); os.close(2); time.sleep(0.05)"], [], "unused secret")
+    if "final report" not in final:
+        raise RuntimeError("terminal output was lost at process exit")
     with tempfile.TemporaryDirectory(prefix="veyra terminal ü ") as tmp:
         root = Path(tmp)
         source = root / "source"
         source.mkdir()
         (source / "important.txt").write_text("recover terminal data", encoding="utf-8")
-        repo, cfg = root / "repository", root / "profiles.json"
+        repo, cfg = root / "repository", root / "settings $ ' 日本語.json"
         password = "disposable-hidden-terminal-password"
-        drive(binary, ["setup", "--config", cfg], [
+        setup_output = drive(binary, ["setup", "--config", cfg], [
             ("Name this backup profile", "terminal"),
             ("Backup repository path", str(repo)),
             ("Source directory:", str(source)),
@@ -104,6 +118,12 @@ def main():
             ("Preview the initial backup", "y"),
             ("Create the initial backup", "y"),
         ], password)
+        # Printed commands must work without PATH changes and preserve literal
+        # spaces, Unicode, quotes and shell expansion characters in config paths.
+        recovery_command = next(line.removeprefix("Recover: ") for line in setup_output.splitlines()
+                                if line.startswith("Recover: "))
+        if shlex.split(recovery_command) != [str(binary), "recover", "--config", str(cfg), "--profile", "terminal"]:
+            raise RuntimeError("setup printed an unsafe or unusable recovery command")
         recovered = root / "recovered"
         output = drive(binary, ["recover", "--repo", repo], [
             ("Repository password (hidden):", password),
@@ -119,6 +139,16 @@ def main():
         drive(binary, ["recover", "--repo", repo], [
             ("Repository password (hidden):", "\x03"),
         ], password, expected_exit=1)
+        # An explicit but unusable password file must fail even with a live
+        # controlling terminal; unattended execution must never prompt there.
+        blank = root / "blank password"
+        blank.write_text("  \n", encoding="utf-8")
+        blank.chmod(0o600)
+        failed = drive(binary, ["backup", "--scheduled", "--config", cfg,
+                               "--profile", "terminal", "--password-file", blank],
+                       [], password, expected_exit=1)
+        if "enter password for repository" in failed.lower():
+            raise RuntimeError("explicit password file fell back to a terminal prompt")
         print("Hidden password entry, cancellation, guided setup and recovery passed in a disposable terminal")
 
 
