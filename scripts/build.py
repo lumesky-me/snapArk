@@ -32,7 +32,7 @@ def main():
             env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0")
             binary = stage / ("veyra.exe" if system == "windows" else "veyra")
             subprocess.run([go, "build", "-trimpath", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
-            for file in ("LICENSE", "README.md", "SECURITY.md"):
+            for file in ("LICENSE", "THIRD-PARTY-LICENSES", "README.md", "SECURITY.md"):
                 shutil.copyfile(ROOT / file, stage / file)
             shutil.copytree(ROOT / "docs", stage / "docs")
             shutil.copyfile(goroot / "LICENSE", stage / "GO-LICENSE")

@@ -32,7 +32,7 @@ Commands:
   credentials   Check password-file permissions for unattended use
   status        Show authoritative profile backup freshness
   retention     Preview scoped retention (--confirm applies)
-  schedule      Generate native scheduler definitions (never installs)
+  schedule      Preview or manage current-user backup schedules
   init          Initialize an encrypted local repository
   backup        Back up one or more directories
   snapshots     List snapshots
@@ -90,7 +90,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	if args[0] == "schedule" && len(args) > 1 {
 		switch args[1] {
-		case "preview", "install", "status", "disable", "remove":
+		case "preview", "install", "replace", "status", "enable", "disable", "remove":
 			operation := args[1]
 			args = append(append([]string{"schedule"}, args[2:]...), operation)
 		}

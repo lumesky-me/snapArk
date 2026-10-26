@@ -96,14 +96,11 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 		if len(args) == 1 {
 			action = args[0]
 		}
-		if p.Disabled && (action == "install" || action == "preview") {
+		if p.Disabled && (action == "install" || action == "replace" || action == "enable" || action == "preview") {
 			return fail(errors.New("profile is disabled"))
 		}
 		if action != "preview" {
-			if r.JSON {
-				return fail(errors.New("scheduler management currently emits native systemctl output; omit --json or use JSON preview"))
-			}
-			return a.manageSchedule(ctx, *p, path, r.PasswordFile, action, confirm)
+			return a.manageSchedule(ctx, *p, path, r.PasswordFile, action, confirm, r.JSON)
 		}
 		text, e := schedule(*p, path, r.PasswordFile)
 		if e != nil {

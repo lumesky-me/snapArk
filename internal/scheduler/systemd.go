@@ -34,6 +34,11 @@ func (m Manager) Owned() error {
 		if !strings.HasPrefix(string(b), m.header()) {
 			return errors.New("scheduler entry is unrelated or ownership cannot be established")
 		}
+		definition := strings.TrimPrefix(string(b), m.header())
+		line, body, ok := strings.Cut(definition, "\n")
+		if !ok || line != "# VEYRA sha256="+fingerprint([]byte(body)) {
+			return errors.New("scheduler definition changed or uses a legacy ownership marker; inspect it manually before replacing")
+		}
 	}
 	return nil
 }
@@ -60,7 +65,7 @@ func (m Manager) Install(files map[string]string) error {
 			return fmt.Errorf("scheduler conflict; no existing entry overwritten: %w", e)
 		}
 		created = append(created, p)
-		_, e = f.WriteString(m.header() + body)
+		_, e = f.WriteString(m.header() + "# VEYRA sha256=" + fingerprint([]byte(body)) + "\n" + body)
 		if e == nil {
 			e = f.Sync()
 		}
@@ -89,6 +94,12 @@ func (m Manager) Disable() error {
 		return e
 	}
 	return m.Run("disable", "--now", m.Name+".timer")
+}
+func (m Manager) Enable() error {
+	if e := m.Owned(); e != nil {
+		return e
+	}
+	return m.Run("enable", "--now", m.Name+".timer")
 }
 func (m Manager) Remove() error {
 	if e := m.Disable(); e != nil {

@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/lumesky-me/veyra/internal/scheduler"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -78,21 +82,33 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 	}
 	linux := []string{}
 	win := []string{}
-	mac := ""
+
 	for i, arg := range argv {
 		linux = append(linux, systemdArg(arg))
-		mac += "<string>" + xmlText(arg) + "</string>"
 		if i > 0 {
 			win = append(win, windowsArg(arg))
 		}
 	}
+	owner := scheduleOwner(p, store.Path)
 	name := "veyra-" + p.Name
+	plist, e := scheduler.LaunchDefinition("me.lumesky.veyra."+p.Name, owner, argv, hours*3600)
+	if e != nil {
+		return nil, e
+	}
+	userID := ""
+	if runtime.GOOS == "windows" {
+		u, e := user.Current()
+		if e != nil {
+			return nil, e
+		}
+		userID = "<UserId>" + xmlText(u.Uid) + "</UserId>"
+	}
 	result := map[string]string{
 		"notice":          "PREVIEW ONLY. Nothing installed. Protect the password file with chmod 600 or a restrictive Windows ACL. A missing drive causes failure, not deletion; no retention runs. Linux retries at timer activation after boot; macOS RunAtLoad and Windows StartWhenAvailable request catch-up. No guarantee is made while the user session or scheduler is unavailable.",
 		name + ".service": "[Unit]\nDescription=VEYRA backup " + p.Name + "\n[Service]\nType=oneshot\nExecStart=" + strings.Join(linux, " ") + "\n",
 		name + ".timer":   fmt.Sprintf("[Unit]\nDescription=VEYRA timer %s\n[Timer]\nOnBootSec=5m\nOnUnitActiveSec=%dh\n[Install]\nWantedBy=timers.target\n", p.Name, hours),
-		name + ".plist":   fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>me.lumesky.veyra.%s</string><key>ProgramArguments</key><array>%s</array><key>StartInterval</key><integer>%d</integer><key>RunAtLoad</key><true/></dict></plist>`, p.Name, mac, hours*3600),
-		name + ".xml":     fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><TimeTrigger><Repetition><Interval>PT%dH</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>%s</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings><Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments></Exec></Actions></Task>`, hours, time.Now().Format("2006-01-02")+"T00:00:00", xmlText(exe), xmlText(strings.Join(win, " "))),
+		name + ".plist":   plist,
+		name + ".xml":     fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Source>VEYRA owner=%s</Source></RegistrationInfo><Triggers><TimeTrigger><Repetition><Interval>PT%dH</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>%s</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Principals><Principal id="Author">%s<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings><Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments></Exec></Actions></Task>`, xmlText(owner), hours, time.Now().Format("2006-01-02")+"T00:00:00", userID, xmlText(exe), xmlText(strings.Join(win, " "))),
 	}
 	for key := range result {
 		if key == "notice" {
@@ -104,4 +120,9 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 		}
 	}
 	return result, nil
+}
+
+func scheduleOwner(p config.Profile, path string) string {
+	digest := sha256.Sum256([]byte(path))
+	return p.ID + ":" + hex.EncodeToString(digest[:])
 }

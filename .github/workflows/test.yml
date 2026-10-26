@@ -27,6 +27,11 @@ jobs:
       - run: python scripts/test_install.py
       - run: python scripts/test-go.py ./...
       - run: python scripts/test-go.py -race ./...
+      - name: Test disposable native schedules
+        if: runner.os != 'Linux'
+        env:
+          VEYRA_NATIVE_SCHEDULER_TESTS: '1'
+        run: python scripts/test-go.py -v -run 'TestTaskSchedulerNative|TestLaunchdNative' ./internal/scheduler
       - run: go vet ./...
       - run: go build ./cmd/veyra
       - name: Build standalone artifact
