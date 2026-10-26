@@ -30,7 +30,7 @@ For unattended backups, supply a private, **regular** password file located outs
 
 **Windows unattended credentials** must be stored locally, owned by the current user, and readable only by that user, SYSTEM, and Administrators. Both inherited and explicit access-control entries are checked. Unsupported access entries, reparse or junction/symlink paths, UNC paths, alternate data streams, reserved device names, and ambiguous trailing dots or spaces are rejected by the release-preparation checks. Open handles restrict ordinary replacement during a scheduled run, but this does not defend against administrators, SYSTEM, or malicious software with the same user's privileges.
 
-Run `snapark credentials --password-file PATH» to inspect eligibility without changing permissions or reading the password contents. **Protecting a password file used in an ordinary manual backup remains your responsibility.**
+Run `snapark credentials --password-file PATH` to inspect eligibility without changing permissions or reading the password contents. **Protecting a password file used in an ordinary manual backup remains your responsibility.**
 
 ## Backup consistency and interruptions
 
@@ -47,13 +47,13 @@ snapArk streams file data rather than loading entire source trees into memory. R
 
 There is a difference between having a backup and knowing its data is readable.
 
-- `snapark verify» checks repository metadata and structure.
-- `snapark verify --full» also reads and authenticates every stored data pack.
+- `snapark verify` checks repository metadata and structure.
+- `snapark verify --full` also reads and authenticates every stored data pack.
 - Protected-command execution performs a full pre-operation repository check; failure blocks the command.
 
 Verification results describe checks performed at a particular time; they cannot guarantee future recoverability. Pruning is not a substitute for verification.
 
-Retention and snapshot deletion are separate from normal backups. `forget --confirm» removes snapshot references; a later `prune --confirm» can make that history permanently unrecoverable. Always preview the proposed changes first.
+Retention and snapshot deletion are separate from normal backups. `forget --confirm` removes snapshot references; a later `prune --confirm` can make that history permanently unrecoverable. Always preview the proposed changes first.
 
 ## Restore boundaries
 
@@ -71,7 +71,7 @@ Before extraction, snapArk authenticates the selected snapshot data and checks f
 - names that cannot be used portably on the target filesystem; and
 - duplicate, case-colliding, or canonically equivalent Unicode paths.
 
-Unicode normalization uses `golang.org/x/text» for conservative collision detection. This may reject a snapshot even when a particular filesystem could distinguish its paths. Filesystem alias behavior has **not** been exhaustively tested. Some valid-but-nonportable archives may need expert inspection and recovery with restic directly.
+Unicode normalization uses `golang.org/x/text` for conservative collision detection. This may reject a snapshot even when a particular filesystem could distinguish its paths. Filesystem alias behavior has **not** been exhaustively tested. Some valid-but-nonportable archives may need expert inspection and recovery with restic directly.
 
 Relative symbolic links are evaluated inside the chosen snapshot root, including on macOS systems with aliased temporary directories. Restic then extracts files and verifies their contents.
 
@@ -82,14 +82,14 @@ Relative symbolic links are evaluated inside the chosen snapshot root, including
 - File ownership, permissions, symbolic links, and other metadata can only be restored where the operating system and the user's privileges permit. Unsupported metadata or ownership errors are reported as failures.
 - Windows symlink creation depends on privileges. Junctions and other reparse-point variants are not universally validated.
 - On Windows, source scans reject unsupported reparse tags rather than silently following them. Known internal symlinks and junctions are not traversed during those scans. Checks can also reject problematic excluded entries.
-- Unix paths and Windows drive paths are interpreted independently of the machine performing recovery. For snapshots originating on a Windows UNC path, inspect `snapark files» and supply an explicit `--root».
+- Unix paths and Windows drive paths are interpreted independently of the machine performing recovery. For snapshots originating on a Windows UNC path, inspect `snapark files` and supply an explicit `--root`.
 - Mount points, network shares, cloud-placeholder files, long paths, and filesystem-specific aliases have not all been certified. Keep the restore parent trusted.
 
 Interactive and scripted recovery use the same authenticated preflight and verified extraction. Neither guarantees that unsupported metadata will transfer unchanged to another operating system.
 
 ## Protected commands are not a sandbox
 
-When explicitly invoked through `snapark run», a command is preceded by a fully verified project checkpoint. Its environment filters inherited restic/snapArk variables and conventional password, token, secret, and API-key variables.
+When explicitly invoked through `snapark run`, a command is preceded by a fully verified project checkpoint. Its environment filters inherited restic/snapArk variables and conventional password, token, secret, and API-key variables.
 
 **The executed program is not sandboxed.** It can still read accessible files, use the network, and discover other credentials. Only commands explicitly wrapped through snapArk receive this checkpoint protection. snapArk does not watch every editor or agent action, and it never automatically rolls back files.
 
@@ -97,6 +97,6 @@ Cancellation requests terminate Unix process groups or use Windows taskkill for 
 
 ---
 
-**Using an existing build?** Until the executable rename is finished, substitute `veyra» for `snapark» in command examples. The underlying backup format remains restic's.
+**Using an older build?** New development builds use `snapark` and also include `veyra` for compatibility with existing scripts and scheduler actions. Older builds may only provide `veyra`. The underlying backup format remains restic's.
 
 For setup instructions and day-to-day use, see [Profiles and daily use](docs/profiles.md).

@@ -4,7 +4,7 @@
 
 A *profile* remembers your source folders, encrypted backup destination, exclusions, and verification preferences.
 
-> **During the rename:** Existing builds still use `veyra` as the executable. Replace `snapark` with `veyra` until Codex finishes the rename. Existing configuration paths and restore marker names are shown as they actually exist.
+> **Existing installations:** The primary command in new development builds is `snapark`. A `veyra` compatibility executable remains available for older scripts and schedules. Existing configuration paths and restore marker names are intentionally preserved.
 
 ## Contents
 
@@ -127,7 +127,6 @@ as ordinary profile backups for status or retention.
 
 **Restores never overwrite an existing directory.** Review your snapshot and choose a new destination.
 
-
 ```sh
 snapark snapshots --profile app --password-file /private/backup-password
 snapark find --profile app --query main.go --password-file /private/backup-password
@@ -176,7 +175,6 @@ Scheduling is **optional**. It needs a private password file for unattended runs
 | Windows | Task Scheduler | Logged-in user |
 | macOS | LaunchAgents | Desktop login session |
 | Linux | systemd user timers | Active user manager |
-
 
 ```sh
 snapark credentials --password-file /absolute/private/password
@@ -243,7 +241,6 @@ unchanged and must be restored or corrected before editing through the CLI.
 ## Verification history and recovery rehearsal
 
 **Backup success, integrity checks, and successful recovery tests are different things.** Use full verification or actual recovery rehearsals when appropriate.
-
 
 ```sh
 snapark verify --profile app --full --password-file /private/backup-password
@@ -319,8 +316,9 @@ password recovery plan; snapArk cannot recover a lost repository password.
 When restic is missing or incompatible, setup can offer the pinned official binary.
 The download and destination require approval. Embedded SHA-256 checksums validate
 the artifact; the executable's version is checked before publication. Installation
-needs a local filesystem supporting hard links, refuses existing executables, saves
-the upstream license, and never changes PATH. `setup --install-restic --dir PATH
+uses safe no-replace publication: hard links on supported Unix filesystems and a
+no-replace file move on Windows. It refuses existing executables, saves the upstream
+license, and never changes PATH. `setup --install-restic --dir PATH
 --confirm` performs only that installation. Profiles remember the selected absolute
 backend path; `--restic PATH` can select one explicitly. Schedules pin this path.
 
@@ -346,7 +344,6 @@ destination inside known original sources and shares scripted restore safeguards
 ## Maintaining local history
 
 Archived history remains historical evidence; it is never treated as a newly completed check.
-
 
 ```sh
 snapark history --id RECORD_ID --json
