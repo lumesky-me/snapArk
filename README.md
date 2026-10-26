@@ -32,6 +32,11 @@ backend, or let the profile remember another location. No Go compiler or Python
 is needed. Add VEYRA's directory to PATH yourself if desired. Checksums detect damage; obtain them from the same
 trusted Actions run as the archive.
 
+Archives are available for Linux x86-64/ARM64, macOS Intel/Apple silicon, and
+Windows x86-64. Filesystem permissions, links, and user-session scheduling differ
+between platforms; see the [platform limitations](SECURITY.md#restore-boundaries).
+`veyra version --json` reports the source revision, target, and Go toolchain.
+
 To build from source, install Go 1.23 or later, clone this repository,
 and run these commands from the checkout:
 
@@ -50,8 +55,8 @@ implement its encryption, chunking, or repository storage engine.
 
 ## Usage
 
-Flags precede positional arguments. Omit `--password-file` to use restic's secure
-terminal prompt. For automation, use a private password file outside all sources
+Flags precede positional arguments. Omit `--password-file` to enter a hidden
+password once per command in a terminal. For automation, use a private password file outside all sources
 (`chmod 600` on Unix; restrict its ACL on Windows). There is no password argument.
 
 ```sh

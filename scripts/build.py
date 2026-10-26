@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build standalone VEYRA archives and SHA256SUMS; never publish a release."""
 import argparse
+import datetime
+import gzip
 import hashlib
 import os
 from pathlib import Path
@@ -14,6 +16,30 @@ TARGETS = ("linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "window
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def archive_files(stage, name, archive, system, epoch):
+    """Normalize metadata so equal source/toolchain builds have equal archives."""
+    files = sorted(p for p in stage.rglob('*') if p.is_file())
+    if system == 'windows':
+        date = datetime.datetime.fromtimestamp(max(epoch, 315532800), datetime.timezone.utc)
+        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+            for file in files:
+                info = zipfile.ZipInfo(f'{name}/{file.relative_to(stage).as_posix()}', date.timetuple()[:6])
+                info.create_system = 3
+                info.external_attr = 0o100644 << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                z.writestr(info, file.read_bytes())
+    else:
+        with archive.open('wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=epoch) as compressed:
+            with tarfile.open(fileobj=compressed, mode='w') as tar:
+                for file in files:
+                    info = tarfile.TarInfo(f'{name}/{file.relative_to(stage).as_posix()}')
+                    info.size = file.stat().st_size
+                    info.mtime = epoch
+                    info.mode = 0o755 if file.name == 'veyra' else 0o644
+                    with file.open('rb') as data:
+                        tar.addfile(info, data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
@@ -23,6 +49,8 @@ def main():
     checksums = []
     go = shutil.which("go")
     goroot = Path(subprocess.check_output([go, "env", "GOROOT"], text=True).strip())
+    epoch = int(os.environ.get('SOURCE_DATE_EPOCH') or subprocess.check_output(
+        ['git', 'show', '-s', '--format=%ct', 'HEAD'], cwd=ROOT, text=True).strip())
     for target in args.target or TARGETS:
         system, arch = target.split("-")
         name = f"veyra-{target}"
@@ -31,22 +59,14 @@ def main():
             stage.mkdir()
             env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0")
             binary = stage / ("veyra.exe" if system == "windows" else "veyra")
-            subprocess.run([go, "build", "-trimpath", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
+            subprocess.run([go, "build", "-trimpath", "-buildvcs=true", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
             for file in ("LICENSE", "THIRD-PARTY-LICENSES", "README.md", "SECURITY.md"):
                 shutil.copyfile(ROOT / file, stage / file)
             shutil.copytree(ROOT / "docs", stage / "docs")
             shutil.copyfile(goroot / "LICENSE", stage / "GO-LICENSE")
             shutil.copyfile(ROOT / "scripts/install-restic.py", stage / "install-restic.py")
-            if system == "windows":
-                archive = args.out / (name + ".zip")
-                with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
-                    for file in sorted(stage.rglob("*")):
-                        if file.is_file():
-                            z.write(file, f"{name}/{file.relative_to(stage).as_posix()}")
-            else:
-                archive = args.out / (name + ".tar.gz")
-                with tarfile.open(archive, "w:gz") as tar:
-                    tar.add(stage, arcname=name)
+            archive = args.out / (name + ('.zip' if system == 'windows' else '.tar.gz'))
+            archive_files(stage, name, archive, system, epoch)
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             checksums.append(f"{digest}  {archive.name}\n")
     (args.out / "SHA256SUMS").write_text("".join(checksums), encoding="ascii")

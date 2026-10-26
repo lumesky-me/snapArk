@@ -22,7 +22,8 @@ veyra doctor --profile app --password-file /private/backup-password
 Options precede the profile name. Names use letters, digits, underscores, and
 hyphens. Paths are resolved at creation, so profiles work from other directories.
 `profile replace` takes a complete replacement configuration and preserves the
-profile ID. `profile delete` removes only configuration. Neither deletes backups.
+profile ID. Remove an installed schedule before deleting its profile.
+`profile delete` removes only configuration. Neither deletes backups.
 Use `--disabled` when adding/replacing to prevent profile backups and scheduling.
 `--expected-hours 24` controls status warnings; zero disables freshness warnings.
 `--verify metadata` (default) or `--verify full` checks the repository after backup.
@@ -50,7 +51,8 @@ target count as a backup of the new target. `status` reads authoritative reposit
 metadata; it does not store or invent a last-success flag. Verification history is stored locally and associated by authenticated repository
 identity and observed snapshot IDs; a replaced repository does not inherit it. Profile backups use a pending tag until backup and configured
 verification succeed, then publish a completion tag using restic's own tag operation.
-Status warns about newer pending work, and retention never selects pending snapshots.
+Status warns about newer pending work and a latest backup attempt without observed
+completion, and retention never selects pending snapshots.
 An interrupted completion step can leave a fully written snapshot pending; inspect
 it with explicit `--repo`. Earlier unmarked profile snapshots remain recoverable
 with `--repo` but are not retroactively certified as successful. JSON backup output
@@ -95,6 +97,7 @@ reserves `<target>.veyra-incomplete.json` beside its destination before extracti
 Failure or interruption retains that marker and the partial target. Only a verified
 successful restore removes it. A pre-existing marker blocks a new attempt until
 it is inspected. Never treat a marked destination as a completed recovery.
+An include pattern that matches nothing fails before creating either output.
 
 Retention previews restic's keep/forget decisions, grouped by host and source
 paths and limited to the selected profile scope. `--confirm` applies deletion.
@@ -145,9 +148,8 @@ Existing macOS/systemd definitions are never overwritten: review, remove and
 reinstall to update them. Older systemd definitions without a fingerprint require
 manual review and removal before installation through the current CLI.
 
-Native tests use disposable future-dated Windows tasks and temporary macOS jobs,
-with cleanup. Plists also pass native `plutil` validation. Real lifecycle tests
-require scheduler access and never install permanent jobs on CI machines.
+Schedules refer to absolute executable, configuration and password-file paths.
+Keep those locations available; remove and reinstall a schedule when moving them.
 
 
 Configuration writes use a private temporary file, sync, and atomic rename where
@@ -220,8 +222,11 @@ password recovery plan; VEYRA cannot recover a lost repository password.
 When restic is missing or incompatible, setup can offer the pinned official binary.
 The download and destination require approval. Embedded SHA-256 checksums validate
 the artifact; the executable's version is checked before publication. Installation
-needs a local filesystem supporting hard links, refuses existing executables, saves
-the upstream license, and never changes PATH. `setup --install-restic --dir PATH
+stages verified bytes in the destination directory, refuses existing executables,
+and saves the upstream license. Windows publishes using a native rename without
+replacement; Unix requires hard-link support for publication without replacement.
+Unsupported filesystems fail rather than overwriting files. Installation never
+changes PATH. `setup --install-restic --dir PATH
 --confirm` performs only that installation. Profiles remember the selected absolute
 backend path; `--restic PATH` can select one explicitly. Schedules pin this path.
 

@@ -2,20 +2,22 @@ name: Test
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
+env:
+  PYTHONUTF8: '1'
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       - name: Install verified restic
@@ -33,18 +35,22 @@ jobs:
       - run: python scripts/test-go.py ./...
       - run: python scripts/test-go.py -race ./...
       - run: go vet ./...
+      - name: Check reachable Go vulnerabilities
+        run: python scripts/check-go-vulnerabilities.py
       - run: go build ./cmd/veyra
       - name: Build standalone artifact
         shell: bash
         run: |
           case "$RUNNER_OS" in
-            Linux) target=linux-amd64 ;;
+            Linux) target="linux-$(go env GOARCH)" ;;
             Windows) target=windows-amd64 ;;
             macOS) target="darwin-$(go env GOARCH)" ;;
           esac
           python scripts/build.py --target "$target"
       - run: python scripts/check-build.py
-      - uses: actions/upload-artifact@v4
+        env:
+          VEYRA_NATIVE_SCHEDULER_TESTS: '1'
+      - uses: actions/upload-artifact@v6
         with:
           name: veyra-${{ runner.os }}-${{ runner.arch }}
           path: dist/*

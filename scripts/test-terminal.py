@@ -13,8 +13,13 @@ import sys
 import tempfile
 import time
 
+from workflow_helpers import protect_windows_file
+
 
 def drive(binary, args, answers, secret, expected_exit=0):
+    if platform.system() == 'Windows':
+        from windows_terminal import drive as windows_drive
+        return windows_drive(binary, args, answers, secret, expected_exit)
     import pty
     pid, fd = pty.fork()
     if pid == 0:
@@ -90,9 +95,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
     args = parser.parse_args()
-    if platform.system() == "Windows":
-        print("PTY workflow uses Unix terminals; Windows controlled-input workflows run in Go tests")
-        return
     binary = args.binary.resolve()
     # Exercise the observed EOF-before-exit case deterministically, alongside
     # real terminal workflows below. Closing descriptors must not lose output
@@ -124,11 +126,18 @@ def main():
         # spaces, Unicode, quotes and shell expansion characters in config paths.
         recovery_command = next(line.removeprefix("Recover: ") for line in setup_output.splitlines()
                                 if line.startswith("Recover: "))
-        if shlex.split(recovery_command) != [str(binary), "recover", "--config", str(cfg), "--profile", "terminal"]:
+        if platform.system() == 'Windows':
+            quoted_binary = "'" + str(binary).replace("'", "''") + "'"
+            quoted_cfg = "'" + str(cfg).replace("'", "''") + "'"
+            valid_command = recovery_command == f'& {quoted_binary} recover --config {quoted_cfg} --profile terminal'
+        else:
+            valid_command = shlex.split(recovery_command) == [str(binary), "recover", "--config", str(cfg), "--profile", "terminal"]
+        if not valid_command:
             raise RuntimeError("setup printed an unsafe or unusable recovery command")
         credential = root / "private password"
         credential.write_text(password, encoding="utf-8")
         credential.chmod(0o600)
+        protect_windows_file(credential)
         snapshots = json.loads(subprocess.check_output([str(binary), "snapshots", "--config", str(cfg),
                                 "--profile", "terminal", "--password-file", str(credential), "--json"], text=True))
         original_id = snapshots[0]["id"]
@@ -159,6 +168,7 @@ def main():
         blank = root / "blank password"
         blank.write_text("  \n", encoding="utf-8")
         blank.chmod(0o600)
+        protect_windows_file(blank)
         failed = drive(binary, ["backup", "--scheduled", "--config", cfg,
                                "--profile", "terminal", "--password-file", blank],
                        [], password, expected_exit=1)

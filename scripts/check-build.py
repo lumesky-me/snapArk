@@ -4,6 +4,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -21,6 +22,7 @@ def main():
     system = systems[platform.system()]
     target = f"veyra-{system}-{arches[platform.machine()]}"
     native = None
+    script_root = Path(__file__).resolve().parent
     for line in (args.dir / "SHA256SUMS").read_text(encoding="ascii").splitlines():
         expected, name = line.split()
         if Path(name).name != name:
@@ -48,7 +50,20 @@ def main():
         output = subprocess.check_output([str(binary), "version"], text=True)
         if not output.startswith("veyra ") or "requires restic 0.18.1" not in output:
             raise ValueError("unexpected standalone version output")
-        script_root = Path(__file__).resolve().parent
+        build = json.loads(subprocess.check_output([str(binary), "version", "--json"], text=True))
+        if build["os"] != system or build["arch"] != arches[platform.machine()] or len(build["revision"]) != 40:
+            raise ValueError("archive build provenance/platform is missing or incorrect")
+        expected_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=script_root.parent, text=True).strip()
+        if build["revision"] != expected_revision:
+            raise ValueError("archive revision differs from source checkout")
+        if os.environ.get('CI') == 'true' and build['modified']:
+            raise ValueError('CI archive was built from modified sources')
+        rebuilt = Path(tmp) / 'rebuilt'
+        import sys
+        subprocess.run([sys.executable, str(script_root / 'build.py'), '--target',
+                        f'{system}-{arches[platform.machine()]}', '--out', str(rebuilt)], check=True)
+        if hashlib.sha256((rebuilt / native.name).read_bytes()).digest() != hashlib.sha256(native.read_bytes()).digest():
+            raise ValueError('repeated build with the same sources/toolchain produced a different archive')
         # Exercise the packaged executable outside the checkout, using the pinned
         # backend installed by CI. No Go command is needed by this workflow.
         work = Path(tmp)
@@ -72,7 +87,6 @@ def main():
             raise ValueError("compiled backend installation or license missing")
         if installed["version"] != "0.18.1":
             raise ValueError("unexpected installed backend version")
-        import sys
         terminal = subprocess.run([sys.executable, str(script_root / "test-terminal.py"), "--binary", str(binary)],
                                   cwd=work, capture_output=True, text=True, timeout=180)
         if terminal.returncode:
@@ -114,6 +128,18 @@ def main():
         saved = json.loads(run("history", "--archive", archive, "--json"))
         if not any(e["kind"] == "verification" and e["outcome"] == "passed" for e in saved):
             raise ValueError("packaged history archive did not preserve verification records")
+        regression = subprocess.run([sys.executable, str(script_root / "check-workflows.py"),
+                                     "--binary", str(binary)], cwd=work, capture_output=True,
+                                    text=True, timeout=600)
+        if regression.returncode:
+            raise RuntimeError("historical/incremental workflow failed: " + regression.stdout + regression.stderr)
+        print(regression.stdout, end="")
+        scheduled = subprocess.run([sys.executable, str(script_root / "test-scheduled-backup.py"),
+                                    "--binary", str(binary)], cwd=work, capture_output=True,
+                                   text=True, timeout=300)
+        if scheduled.returncode:
+            raise RuntimeError("native scheduled backup failed: " + scheduled.stdout + scheduled.stderr)
+        print(scheduled.stdout, end="")
         print("Packaged installation, profiles, backup, recovery and history verified outside the checkout")
         print(output.strip())
         print("Archive checksums, distribution contents, and native executable verified")

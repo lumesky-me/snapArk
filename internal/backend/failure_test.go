@@ -1,8 +1,10 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +13,96 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSourceChangesDuringBackup(t *testing.T) {
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "stable"), []byte("unchanged project data"))
+	complete := "veyra:test-live-source:complete"
+	previous, e := r.VerifiedBackup(ctx, BackupOptions{Sources: []string{src}}, complete, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	live := filepath.Join(src, "live binary")
+	f, e := os.Create(live)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = io.CopyN(f, rand.Reader, 32<<20)
+	e = errors.Join(e, f.Close())
+	if e != nil {
+		t.Fatal(e)
+	}
+	stop := make(chan struct{})
+	changed := make(chan error, 1)
+	go func() {
+		file, err := os.OpenFile(live, os.O_WRONLY, 0)
+		if err != nil {
+			changed <- err
+			return
+		}
+		defer file.Close()
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for n := 0; ; n++ {
+			if _, err = file.WriteAt(bytes.Repeat([]byte{byte('A' + n%2)}, 4096), (32<<20)-4096); err != nil {
+				changed <- err
+				return
+			}
+			select {
+			case <-stop:
+				changed <- nil
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	id, backupErr := r.VerifiedBackup(ctx, BackupOptions{Sources: []string{src}}, complete, false)
+	close(stop)
+	if e = <-changed; e != nil {
+		t.Fatal(e)
+	}
+	if backupErr != nil {
+		if id != "" {
+			t.Fatal("failed live-source backup reported completion", id)
+		}
+		snapshots, err := r.Snapshots(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, snapshot := range snapshots {
+			for _, tag := range snapshot.Tags {
+				if tag == complete && snapshot.ID != previous {
+					t.Fatal("failed live-source backup was certified complete")
+				}
+			}
+		}
+	} else {
+		target := filepath.Join(filepath.Dir(src), "live recovery")
+		if e = r.Restore(ctx, RestoreOptions{Snapshot: id, Target: target}); e != nil {
+			t.Fatal(e)
+		}
+		if hashFile(t, filepath.Join(target, "stable")) != hashFile(t, filepath.Join(src, "stable")) {
+			t.Fatal("live-source backup damaged unrelated stable contents")
+		}
+	}
+	// Live application consistency is not promised. Once the writer stops, the
+	// next incremental snapshot must recover the exact final file contents.
+	expected := hashFile(t, live)
+	id, e = r.VerifiedBackup(ctx, BackupOptions{Sources: []string{src}}, complete, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	target := filepath.Join(filepath.Dir(src), "quiescent recovery")
+	if e = r.Restore(ctx, RestoreOptions{Snapshot: id, Target: target}); e != nil {
+		t.Fatal(e)
+	}
+	if hashFile(t, filepath.Join(target, "live binary")) != expected {
+		t.Fatal("incremental backup did not capture final source contents")
+	}
+	if _, e = r.Resolve(ctx, previous); e != nil {
+		t.Fatal("live source changes lost the previous backup", e)
+	}
+}
 
 func TestStorageFailuresAndConcurrency(t *testing.T) {
 	r, src, ctx := fixture(t)

@@ -15,6 +15,7 @@ import (
 // PowerShell hosts the documented Task Scheduler COM API. All variable data
 // travels as JSON over stdin; no path or task XML is interpolated into code.
 const taskScript = `$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 try {

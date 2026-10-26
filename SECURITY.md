@@ -11,15 +11,15 @@ impossible. Anyone with a key can decrypt the repository. Encryption does not
 hide repository size or access patterns and does not prevent deletion by someone
 with filesystem access. Keep repository and password permissions restricted.
 
-Passwords may be entered through restic's terminal prompt or read from a private
+Passwords may be entered through a hidden terminal prompt or read from a private
 regular password file. VEYRA rejects symlink password files and Unix files with
 group/other permissions. For unattended Windows use, the file must be owned by
 the current account and grant access only to that account, SYSTEM, or
 Administrators. Explicit and inherited grants are inspected with Windows security
 APIs; unsupported ACEs fail closed. `veyra credentials --password-file PATH`
 checks these rules without changing permissions or reading password contents.
-Unattended credentials require a local path without reparse points or alternate
-data streams. Open handles pin its components and prevent ordinary replacement
+Unattended credentials require a local path without reparse points, alternate
+data streams, reserved device names or trailing dots/spaces. Open handles pin its components and prevent ordinary replacement
 and writes for the duration of a scheduled run. This does not protect against
 administrators, SYSTEM, or hostile processes running as the same account.
 Password files inside a source are rejected. Inherited restic configuration is

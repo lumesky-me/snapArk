@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Check reachable vulnerabilities and preserve failures in CI annotations."""
+import subprocess
+import sys
+
+
+def main():
+    result = subprocess.run(['go', 'run', 'golang.org/x/vuln/cmd/govulncheck@v1.1.4', './...'],
+                            capture_output=True, text=True)
+    print(result.stdout, end='')
+    print(result.stderr, end='', file=sys.stderr)
+    if result.returncode:
+        detail = (result.stdout + result.stderr)[-14000:]
+        detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print('::error::Go vulnerability check failed: ' + detail, flush=True)
+    return result.returncode
+
+
+if __name__ == '__main__':
+    sys.exit(main())
