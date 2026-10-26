@@ -66,7 +66,7 @@ snapark recover --profile my-project
 
 Use the profile name you created during setup. New development builds provide `snapark` as the primary command and `veyra` as a compatibility executable for existing scripts and schedules. Older builds may only provide `veyra`.
 
-**No official release has been published yet.** For now, test builds are available from successful [GitHub Actions runs](https://github.com/lumesky-me/snapArk/actions). Choose a build for your platform, verify its included checksum, extract it, and run setup. GitHub may require sign-in to download artifacts.
+**Downloads:** The [Releases page](https://github.com/lumesky-me/snapArk/releases) is the home for official builds. Development and test builds are available from successful [GitHub Actions runs](https://github.com/lumesky-me/snapArk/actions). Choose the archive for your platform, verify its included checksum, extract it, and run setup. GitHub may require sign-in to download CI artifacts.
 
 You can also build from source using **Go 1.25+**. See the [source code](https://github.com/lumesky-me/snapArk) and the [daily-use guide](docs/profiles.md) for detailed workflows and configuration.
 
