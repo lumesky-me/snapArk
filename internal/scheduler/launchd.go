@@ -1,11 +1,14 @@
 package scheduler
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -61,15 +64,94 @@ func (m LaunchManager) observed() (loaded, disabled bool, detail string, err err
 	return
 }
 func (m LaunchManager) loadedOwner(detail string) error {
-	// launchctl reports the origin plist. Do not boot out a job loaded from a
-	// different path merely because it has the same label.
+	b, e := os.ReadFile(m.file())
+	if e != nil {
+		return e
+	}
+	args, seconds, e := launchParameters(string(b))
+	if e != nil {
+		return e
+	}
+	origin, program, interval := "", "", ""
+	observed := []string{}
+	inArguments := false
 	for _, line := range strings.Split(detail, "\n") {
-		if strings.TrimSpace(line) == "path = "+m.file() {
-			return nil
+		text := strings.TrimSpace(line)
+		if inArguments {
+			if text == "}" {
+				inArguments = false
+			} else {
+				observed = append(observed, text)
+			}
+			continue
+		}
+		switch {
+		case strings.HasPrefix(text, "path = "):
+			origin = strings.TrimPrefix(text, "path = ")
+		case strings.HasPrefix(text, "program = "):
+			program = strings.TrimPrefix(text, "program = ")
+		case text == "arguments = {":
+			inArguments = true
+		case strings.HasPrefix(text, "run interval = "):
+			interval = strings.TrimPrefix(text, "run interval = ")
 		}
 	}
-	return errors.New("loaded job origin cannot be matched to the owned LaunchAgent; nothing modified")
+	if origin != m.file() || len(args) == 0 || program != args[0] || len(observed) != len(args) || interval != strconv.Itoa(seconds)+" seconds" {
+		return errors.New("loaded job origin, program, arguments or interval differ from the owned plist, or cannot be observed; nothing modified")
+	}
+	for i, arg := range args {
+		if observed[i] != arg {
+			return errors.New("loaded job arguments differ from the owned plist; nothing modified")
+		}
+	}
+	return nil
 }
+func launchParameters(definition string) ([]string, int, error) {
+	d := xml.NewDecoder(strings.NewReader(definition))
+	key := ""
+	args := []string{}
+	seconds := 0
+	for {
+		t, e := d.Token()
+		if e == io.EOF {
+			break
+		}
+		if e != nil {
+			return nil, 0, e
+		}
+		s, ok := t.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch s.Name.Local {
+		case "key":
+			if e = d.DecodeElement(&key, &s); e != nil {
+				return nil, 0, e
+			}
+		case "array":
+			if key == "ProgramArguments" {
+				var a struct {
+					Strings []string `xml:"string"`
+				}
+				if e = d.DecodeElement(&a, &s); e != nil {
+					return nil, 0, e
+				}
+				args = a.Strings
+			}
+		case "integer":
+			if key == "StartInterval" {
+				if e = d.DecodeElement(&seconds, &s); e != nil {
+					return nil, 0, e
+				}
+			}
+		}
+	}
+	if len(args) == 0 || seconds < 1 {
+		return nil, 0, errors.New("invalid owned LaunchAgent parameters")
+	}
+	return args, seconds, nil
+}
+
 func (m LaunchManager) Status() (State, error) {
 	loaded, disabled, detail, e := m.observed()
 	if e != nil {

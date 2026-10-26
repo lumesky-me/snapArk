@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -37,6 +38,10 @@ func canonicalExisting(path string) (string, error) {
 		if strings.HasPrefix(final, `\\?\UNC\`) {
 			return `\\` + strings.TrimPrefix(final, `\\?\UNC\`), nil
 		}
-		return strings.TrimPrefix(final, `\\?\`), nil
+		normalized := strings.TrimPrefix(final, `\\?\`)
+		if !filepath.IsAbs(normalized) || strings.HasPrefix(final, `\\?\Volume{`) {
+			return "", fmt.Errorf("Windows volume has no supported DOS/UNC path; assign a drive letter before using it")
+		}
+		return normalized, nil
 	}
 }

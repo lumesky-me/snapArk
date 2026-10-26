@@ -101,7 +101,7 @@ func TestLaunchLifecycle(t *testing.T) {
 			if !loaded {
 				return []byte("Could not find service"), errors.New("missing")
 			}
-			return []byte("job = {\n path = " + m.file() + "\n}"), nil
+			return []byte("job = {\n path = " + m.file() + "\n program = /a & ü/veyra\n arguments = {\n/a & ü/veyra\nbackup\nquote\"\n}\nrun interval = 3600 seconds\n}"), nil
 		case "print-disabled":
 			return []byte(`{"` + m.Name + `" => ` + map[bool]string{true: "true", false: "false"}[disabled] + `}`), nil
 		case "bootstrap":

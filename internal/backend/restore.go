@@ -11,6 +11,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 type Node struct {
@@ -23,7 +25,7 @@ type Node struct {
 // SafeNode treats snapshot paths as portable paths, independent of host OS.
 func SafeNode(n Node) error {
 	p := n.Path
-	if !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\:\x00") || path.Clean(p) != p {
+	if !utf8.ValidString(p) || !utf8.ValidString(n.LinkTarget) || !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\:\x00") || path.Clean(p) != p {
 		return fmt.Errorf("unsafe snapshot path %q", p)
 	}
 	if n.Type != "file" && n.Type != "dir" && n.Type != "symlink" {
@@ -192,19 +194,13 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	}
 	ref := s.ID
 	root := o.Root
-	if root == "" && len(s.Paths) == 1 {
-		root = snapshotRoot(s.Paths[0])
-		nodes, e := r.Search(ctx, s.ID, root)
-		if e != nil {
-			return e
-		}
-		for _, node := range nodes {
-			if node.Path == root && node.Type != "dir" {
-				root = path.Dir(root)
-				break
-			}
+	if root == "" {
+		root, err = r.DefaultRoot(ctx, s)
+		if err != nil {
+			return err
 		}
 	}
+
 	if root != "" {
 		if !strings.HasPrefix(root, "/") || path.Clean(root) != root || strings.ContainsAny(root, "\\:\x00") {
 			return errors.New("invalid snapshot root")
@@ -214,7 +210,7 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 	if err = r.validateTree(ctx, ref); err != nil {
 		return fmt.Errorf("restore preflight: %w", err)
 	}
-	args := []string{"restore", ref, "--target", target, "--verify"}
+	args := []string{"restore", ref, "--target", target}
 	for _, p := range o.Include {
 		if !validSelector(p) {
 			return errors.New("invalid include pattern")
@@ -225,13 +221,20 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 		args = append(args, "--dry-run")
 		return r.Execute(ctx, args...)
 	}
+	args = append(args, "--verify")
 	// Reserve an empty private root. Do not remove failed restores: data can be recovered.
 	marker := target + ".veyra-incomplete.json"
 	status, e := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if e != nil {
 		return fmt.Errorf("reserve restore status file (inspect any previous attempt): %w", e)
 	}
-	e = json.NewEncoder(status).Encode(map[string]string{"state": "incomplete", "snapshot": s.ID, "target": target})
+	identity, identityErr := r.Identity(ctx)
+	if identityErr != nil {
+		_ = status.Close()
+		_ = os.Remove(marker)
+		return identityErr
+	}
+	e = json.NewEncoder(status).Encode(RestoreAttempt{Version: 1, Started: time.Now().UTC(), State: "incomplete", Repository: identity, Snapshot: s.ID, Target: target, Root: root, Include: o.Include})
 	if e == nil {
 		e = status.Sync()
 	}
@@ -291,4 +294,38 @@ func reservedPort(name string) bool {
 	}
 	suffix := name[3:]
 	return suffix == "¹" || suffix == "²" || suffix == "³"
+}
+
+// DefaultRoot preserves a single source's contents without extracting synthetic
+// ancestor directories. Multiple sources remain rooted at the snapshot root.
+func (r Repository) DefaultRoot(ctx context.Context, s Snapshot) (string, error) {
+	if len(s.Paths) != 1 {
+		return "/", nil
+	}
+	root := snapshotRoot(s.Paths[0])
+	if root == "/" {
+		return root, nil
+	}
+	if !strings.HasPrefix(root, "/") || strings.ContainsAny(root, "\\:\x00") {
+		return "", errors.New("snapshot source root needs an explicit portable --root; inspect files first")
+	}
+	after := ""
+	for {
+		nodes, more, e := r.Browse(ctx, s.ID, path.Dir(root), after, path.Base(root), 100)
+		if e != nil {
+			return "", e
+		}
+		for _, n := range nodes {
+			if n.Path == root {
+				if n.Type != "dir" {
+					return path.Dir(root), nil
+				}
+				return root, nil
+			}
+		}
+		if !more || len(nodes) == 0 {
+			return "", errors.New("snapshot source root was not found; choose an explicit --root")
+		}
+		after = nodes[len(nodes)-1].Path
+	}
 }

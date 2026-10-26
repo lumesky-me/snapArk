@@ -34,6 +34,7 @@ func (r Retention) Validate() error {
 func (r Retention) Empty() bool { return r == Retention{} }
 
 type Profile struct {
+	Backend         string    `json:"restic,omitempty"`
 	FullVerifyHours int       `json:"full_verify_hours,omitempty"`
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
@@ -68,6 +69,9 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b[:]), e
 }
 func (p Profile) Validate() error {
+	if p.Backend != "" && !filepath.IsAbs(p.Backend) {
+		return errors.New("restic executable path must be absolute")
+	}
 	if !namePattern.MatchString(p.Name) || !idPattern.MatchString(p.ID) {
 		return errors.New("profile name or ID is invalid (names use letters, numbers, underscore and hyphen)")
 	}

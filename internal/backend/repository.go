@@ -2,6 +2,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,14 +27,17 @@ type Repository struct {
 
 	Path         string
 	PasswordFile string
-	Binary       string
-	Out          io.Writer
-	Err          io.Writer
-	JSON         bool
-	Quiet        bool
-	ReadOnly     bool
-	SnapshotTag  string
-	SnapshotHost string
+	// PasswordInput is supplied only by an interactive terminal prompt. It travels
+	// through a child stdin pipe, never arguments, environment or a disk file.
+	PasswordInput []byte `json:"-"`
+	Binary        string
+	Out           io.Writer
+	Err           io.Writer
+	JSON          bool
+	Quiet         bool
+	ReadOnly      bool
+	SnapshotTag   string
+	SnapshotHost  string
 }
 
 // Environment removes inherited backend configuration and credential bindings.
@@ -52,6 +56,9 @@ func Environment() []string {
 }
 
 func (r Repository) Validate(ctx context.Context) error {
+	if len(r.PasswordInput) > 0 && (r.PasswordFile != "" || bytes.ContainsAny(r.PasswordInput, "\r\n\x00")) {
+		return errors.New("invalid in-memory password source")
+	}
 	if r.Path == "" {
 		return errors.New("specify --repo with a local repository directory")
 	}
@@ -73,20 +80,33 @@ func (r Repository) Validate(ctx context.Context) error {
 			return errors.New("password file is empty")
 		}
 	}
-	binary := r.Binary
+	_, _, err := Backend(ctx, r.Binary)
+	return err
+}
+
+// Backend reports the selected executable and its observed pinned version.
+func Backend(ctx context.Context, binary string) (string, string, error) {
 	if binary == "" {
 		binary = resticBinary()
+	}
+	located, e := exec.LookPath(binary)
+	if e != nil {
+		return "", "", fmt.Errorf("restic %s is required; run veyra setup: %w", Version, e)
+	}
+	binary, e = filepath.Abs(located)
+	if e != nil {
+		return "", "", e
 	}
 	cmd := exec.CommandContext(ctx, binary, "version")
 	cmd.Env = Environment()
 	data, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("restic is required: %w", err)
+		return binary, "", fmt.Errorf("restic is required: %w", err)
 	}
 	if !strings.HasPrefix(string(data), "restic "+Version+" ") {
-		return fmt.Errorf("restic %s is required; found %s", Version, strings.TrimSpace(string(data)))
+		return binary, strings.TrimSpace(string(data)), fmt.Errorf("restic %s is required; found %s", Version, strings.TrimSpace(string(data)))
 	}
-	return nil
+	return binary, strings.TrimSpace(string(data)), nil
 }
 
 func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
@@ -111,6 +131,9 @@ func (r Repository) command(ctx context.Context, args ...string) *exec.Cmd {
 	c := exec.CommandContext(ctx, binary, append(base, args...)...)
 	c.Env = Environment()
 	c.Stdin = os.Stdin
+	if len(r.PasswordInput) > 0 {
+		c.Stdin = io.MultiReader(bytes.NewReader(r.PasswordInput), strings.NewReader("\n"))
+	}
 	c.Stdout = r.Out
 	c.Stderr = r.Err
 	return c
@@ -209,6 +232,9 @@ func Canonical(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
+	}
+	if e := checkPathComponents(abs); e != nil {
+		return "", e
 	}
 	var tail []string
 	for {

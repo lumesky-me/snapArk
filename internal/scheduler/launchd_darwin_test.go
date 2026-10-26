@@ -66,7 +66,11 @@ func TestLaunchdNative(t *testing.T) {
 		if out, err := exec.Command("/usr/bin/plutil", "-p", m.file()).CombinedOutput(); err == nil {
 			t.Logf("native plist: %s", out)
 		}
-		t.Fatal(e)
+
+		if out, err := exec.Command("/usr/bin/log", "show", "--last", "1m", "--style", "compact", "--predicate", `process == "launchd" AND eventMessage CONTAINS "`+m.Name+`"`).CombinedOutput(); len(out) > 0 {
+			t.Logf("launchd diagnostics (%v): %s", err, out)
+		}
+		t.Fatalf("uid=%d domain=%s plist=%s: %v", os.Getuid(), m.Domain, m.file(), e)
 	}
 	if s, e := m.Status(); e != nil || s.State != "enabled" {
 		t.Fatal(s, e)

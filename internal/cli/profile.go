@@ -38,6 +38,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 	fs.StringVar(&path, "config", "", "configuration file (default: per-user config directory)")
 	fs.BoolVar(&structured, "json", false, "JSON output")
 	fs.StringVar(&p.Repository, "repo", "", "repository path")
+	fs.StringVar(&p.Backend, "restic", "", "optional pinned restic executable path")
 	fs.Var(&sources, "source", "source directory (repeatable)")
 	fs.Var(&include, "include", "relative file or directory to include (repeatable, no glob expansion)")
 	fs.Var(&exclude, "exclude", "restic exclusion pattern (repeatable)")
@@ -150,6 +151,7 @@ func (a App) profile(ctx context.Context, args []string) int {
 				return fail(errors.New("unsupported profile export version"))
 			}
 			imported := exported.Profile
+			imported.Backend = p.Backend // Never import an executable path from another machine.
 			imported.Repository = p.Repository
 			imported.Sources = nil
 			if hasFlag(fs, "include") {
@@ -174,6 +176,12 @@ func (a App) profile(ctx context.Context, args []string) int {
 			p = imported
 			include = append(stringsFlag{}, p.Include...)
 			exclude = append(stringsFlag{}, p.Exclude...)
+		}
+		if p.Backend != "" {
+			p.Backend, e = filepath.Abs(p.Backend)
+			if e != nil {
+				return fail(e)
+			}
 		}
 		p.Name = name
 		p.Include = include

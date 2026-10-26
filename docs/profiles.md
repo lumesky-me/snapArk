@@ -105,39 +105,50 @@ its own `--confirm`. Deleted historical recovery points may be unrecoverable aft
 pruning. Neither preview promises a future amount of reclaimed space. After an
 interruption inspect snapshot history before retrying. Locks are never auto-removed.
 
-## Scheduling previews
+## Scheduling
 
 ```sh
-veyra schedule --profile app --password-file /private/backup-password --json
+veyra credentials --password-file /absolute/private/password
+veyra schedule preview --profile app --password-file /absolute/private/password
+veyra schedule install --profile app --password-file /absolute/private/password --confirm
+veyra schedule status --profile app --json
+veyra schedule disable --profile app --confirm
+veyra schedule enable --profile app --confirm
+veyra schedule remove --profile app --confirm
 ```
 
-This prints definitions for the current OS and installs nothing. The interval is
-`expected-hours` (24 hours if zero), limited to 31 days for scheduling. Choose a
-password file with mode 600 on Unix or a restrictive Windows ACL. Definitions
-contain its path only. Do not schedule with a password prompt. A disabled profile
-fails before backup; missing drives fail safely until a later scheduled attempt.
-No retention is scheduled. Review generated paths and the command before installing.
+Preview installs nothing. Other changes need `--confirm`; ordinary backup/setup
+commands never install schedules. The interval is `expected-hours` (24 if zero),
+limited to 31 days. Password-file paths are included, never password contents.
+A disconnected drive or active backup makes a run fail safely. No retention runs.
 
-- Linux: save the service and timer strings as the indicated filenames under
-  `~/.config/systemd/user/`, then run `systemctl --user daemon-reload` and
-  `systemctl --user enable --now veyra-app.timer`. Disable with
-  `systemctl --user disable --now veyra-app.timer`. The timer runs five minutes
-  after user-manager startup and repeats while it is active. It is not a calendar
-  timer and does not persist a record of missed runs.
-- macOS: save the plist under `~/Library/LaunchAgents/`, then explicitly load it
-  with `launchctl bootstrap gui/$(id -u) PATH_TO_PLIST`. Remove it with
-  `launchctl bootout gui/$(id -u) PATH_TO_PLIST`. RunAtLoad requests a run at load;
-  interval behavior depends on launchd and the login session.
-- Windows: generated XML is currently inspection-only; coordinated execution
-  refuses unvalidated ACLs. Do not install this definition until ACL support is
-  implemented. For manually managed ordinary backups, use Task Scheduler only
-  after reviewing restrictive credential-file ACLs and account selection. Select your
-  user account and non-elevated interactive execution; review the trigger and
-  StartWhenAvailable setting. Disable or delete the named task in Task Scheduler.
-  Logged-out execution and machine-wide credentials are not configured by VEYRA.
+- Linux uses user-systemd timers. A user manager must be available; VEYRA never
+  enables lingering. Timers request a run five minutes after manager startup and
+  repeat while active; missed intervals are not a persistent calendar schedule.
+- Windows uses Task Scheduler's COM API and the current account with
+  `InteractiveToken` and least privileges. This requires a logged-in user; it
+  does not support logged-out execution. `StartWhenAvailable` requests catch-up,
+  subject to Windows session/power policy. `schedule replace --confirm` updates
+  an owned, unchanged task. No elevation or account password is requested.
+- macOS uses `~/Library/LaunchAgents` in the current GUI login domain. Loading
+  requires a desktop login session. `RunAtLoad` requests a run when loaded;
+  intervals missed during sleep or logout are not all replayed. Bootstrap
+  failures retain the owned plist for inspection; `enable` can retry loading.
 
-These are previews, not tested scheduler installations. Native CI checks quoting
-and XML generation without installing recurring tasks. No automatic updater is used.
+Status queries the native scheduler and distinguishes installation, enabled state,
+loaded state, conflicts and inaccessible services. A loaded timer/job does not
+prove that a backup ran. Ownership ties a definition to the profile and config
+path; fingerprints detect edits. VEYRA refuses to change unrelated or edited
+entries. Windows stores its native XML fingerprint beside the configuration in
+`<config>.schedules/`; keep those ownership records with the configuration.
+Existing macOS/systemd definitions are never overwritten: review, remove and
+reinstall to update them. Older systemd definitions without a fingerprint require
+manual review and removal before installation through the current CLI.
+
+Native tests use disposable future-dated Windows tasks and temporary macOS jobs,
+with cleanup. Plists also pass native `plutil` validation. Real lifecycle tests
+require scheduler access and never install permanent jobs on CI machines.
+
 
 Configuration writes use a private temporary file, sync, and atomic rename where
 supported. Concurrent cooperative writers get a busy error instead of overwriting
@@ -175,7 +186,7 @@ is atomically replaced with its final result. A remaining `started` event means
 completion was not observed; it does not establish whether a process is still
 running. The journal is local evidence, not tamper-proof certification. Corrupt or
 unsupported records cause errors rather than being overwritten. After 1,000 records,
-new journaled work refuses to start; explicitly archive reviewed files to free space.
+new journaled work refuses to start; use `history archive` to preserve reviewed records and free space.
 A stale journal `.lock` or `run-<profile-id>.lock` requires manual inspection; locks
 are never stolen. Status authenticates current repository identity and scope before
 matching history. Retagging/deleting/adding snapshots can make prior checks historical;
@@ -187,21 +198,69 @@ identity remains visible in history but is not attributed to the current reposit
 another run owns the profile lock, and journals the attempt. It never runs retention.
 The pinned restic binary is found beside VEYRA before falling back to PATH. SIGTERM
 and Ctrl-C request cancellation; ungraceful process termination can leave a started
-record and lock for manual review. Windows coordinated execution currently refuses
-because password-file ACL validation is not implemented; do not install generated
-Windows definitions containing this flag yet. Ordinary explicitly invoked Windows
-backups remain supported with user-managed restrictive ACLs.
+record and lock for manual review. Windows unattended credentials must be local,
+owned by the current account, and readable only by that account, SYSTEM and
+Administrators. Both inherited and explicit grants are checked using security APIs.
+Unsupported ACLs, junction/symlink credential paths, UNC paths and alternate data
+streams are refused. `credentials` explains a rejection without changing any ACL.
+Protecting an ordinary manually invoked Windows backup's ACL remains your responsibility.
 
-On Linux, `schedule install --confirm --profile app --password-file /absolute/file`
-installs only user-systemd units. Inspect `schedule preview` first. `schedule status`,
-`schedule disable --confirm`, and `schedule remove --confirm` manage only entries
-bearing this profile/configuration ownership marker. Existing files are never
-overwritten; updates require explicit removal and reinstallation. No administrator
-privileges or lingering are enabled. A user systemd session must be available.
-Lifecycle unit tests use a fake command runner and disposable files; they do not
-establish that a scheduler is available on your host. macOS/Windows automatic
-management remains unavailable; their definitions are previews only. Native
-scheduling output is currently plain text; JSON is supported for previews.
+## Guided setup and recovery
+
+`veyra setup` guides repository/source selection, exclusions, profile creation,
+optional initialization, a dry-run and a verified first backup. Existing profiles
+and nonempty unrelated directories are never replaced. Passwords entered at its
+hidden prompt stay in memory and reach restic through stdin. Keep a separate
+password recovery plan; VEYRA cannot recover a lost repository password.
+
+When restic is missing or incompatible, setup can offer the pinned official binary.
+The download and destination require approval. Embedded SHA-256 checksums validate
+the artifact; the executable's version is checked before publication. Installation
+needs a local filesystem supporting hard links, refuses existing executables, saves
+the upstream license, and never changes PATH. `setup --install-restic --dir PATH
+--confirm` performs only that installation. Profiles remember the selected absolute
+backend path; `--restic PATH` can select one explicitly. Schedules pin this path.
+
+`veyra recover` offers repository/profile selection, snapshot search by date, host,
+label or ID, paged folder browsing, selection and a new destination. Numbers navigate;
+`add N` selects a folder, `/text` filters a list, `n`/`p` page, and `q` cancels.
+Single-source snapshots start at their source root; multi-source snapshots start at
+`/`. Include paths in the preview are relative to that root. The full preflight
+runs before approval; typing `restore` starts extraction and content verification.
+A problematic entry anywhere in the chosen root can block selective recovery.
+Choose a narrower root with scripted `restore --root` when appropriate.
+
+Interactive commands refuse background input. `snapshots`, `files`, `find`,
+`restore --dry-run` and `restore` remain available for automation. On another
+computer, use `recover --repo PATH` without the original configuration; all hosts
+and historical revisions in that repository are visible. The wizard refuses a
+destination inside known original sources and shares scripted restore safeguards.
+
+## Maintaining local history
+
+```sh
+veyra history --id RECORD_ID --json
+veyra history archive --before 2026-01-01T00:00:00Z --to /private/history-archive
+veyra history archive --before 2026-01-01T00:00:00Z --to /private/history-archive --confirm
+veyra history --archive /private/history-archive --json
+veyra inspect-restore --target /path/to/incomplete-recovery --json
+```
+
+Archival defaults to passed, finalized results older than the cutoff. Review failures
+before adding `--include-failures`; unfinished `started` records always stay active.
+A new private directory receives synced, checksum-verified copies and a committed
+manifest before originals are removed under the history lock. Unix directory-sync
+failures abort before removal. Windows flushes individual files; power-loss
+durability still depends on the filesystem. An interruption can
+leave duplicates; incomplete archives without a manifest must be inspected while
+retaining originals. Archives are never silently imported into active status or a
+different repository identity. Local checksums detect accidental damage, not tampering.
+
+`inspect-restore` reads an incomplete marker and observes whether partial output
+exists. It changes nothing and does not certify that output. Retry into a different
+new destination after checking active processes. There is no automatic resume,
+cleanup or lock removal. A backward wall-clock change leaves a finalized inconclusive
+record instead of corrupting history or claiming a timed success.
 
 Profile export/import is non-secret and deliberately remapped:
 

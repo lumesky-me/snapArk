@@ -168,6 +168,9 @@ func (a App) workflow(ctx context.Context, cmd string, r backend.Repository, p *
 			row := overview{Profile: v.Name, Repository: v.Repository, Sources: v.Sources, State: "unknown", Verification: "not checked; snapshot recency is not an integrity check"}
 			repo := r
 			repo.Path = v.Repository
+			if repo.Binary == "" {
+				repo.Binary = v.Backend
+			}
 			repo.ProfileID = v.ID
 			repo.SnapshotTag = ""
 			repo.SnapshotHost = host

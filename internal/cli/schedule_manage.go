@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -32,7 +33,14 @@ func nativeCommand(ctx context.Context) scheduler.Command {
 	}
 }
 func (a App) manageSchedule(ctx context.Context, p config.Profile, path, password, action string, confirm, structured bool) int {
-	fail := func(e error) int { fmt.Fprintln(a.Err, e); return 1 }
+	fail := func(e error) int {
+		if structured {
+			_ = json.NewEncoder(a.Err).Encode(map[string]string{"error": e.Error()})
+		} else {
+			fmt.Fprintln(a.Err, e)
+		}
+		return 1
+	}
 	store, e := configStore(path)
 	if e != nil {
 		return fail(e)
@@ -45,7 +53,7 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 	var definition string
 	switch runtime.GOOS {
 	case "windows":
-		m := scheduler.TaskManager{Dir: store.Path + ".schedules", Name: name, Owner: owner, Command: command}
+		m := scheduler.TaskManager{Dir: store.Path + ".schedules", Name: nativeScheduleName(p, store.Path), Owner: owner, Command: command}
 		apply = m.Apply
 		status = m.Status
 	case "darwin":
@@ -53,7 +61,7 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 		if e != nil {
 			return fail(e)
 		}
-		m := scheduler.LaunchManager{Dir: filepath.Join(home, "Library", "LaunchAgents"), Name: "me.lumesky.veyra." + p.Name, Owner: owner, Domain: "gui/" + strconv.Itoa(os.Getuid()), Records: store.Path + ".schedules", Command: command}
+		m := scheduler.LaunchManager{Dir: filepath.Join(home, "Library", "LaunchAgents"), Name: "me.lumesky." + nativeScheduleName(p, store.Path), Owner: owner, Domain: "gui/" + strconv.Itoa(os.Getuid()), Records: store.Path + ".schedules", Command: command}
 		apply = m.Apply
 		status = m.Status
 	case "linux":
@@ -69,6 +77,21 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 			return nil
 		}}
 		apply = func(action, unused string) error {
+			if action == "install" {
+				for _, suffix := range []string{".timer", ".service"} {
+					props, e := systemdProperties(name+suffix, command)
+					if e != nil {
+						return e
+					}
+					if props["LoadState"] != "not-found" {
+						return errors.New("native systemd name is already occupied; nothing overwritten")
+					}
+				}
+			} else {
+				if _, e := systemdState(m, command); e != nil {
+					return e
+				}
+			}
 			switch action {
 			case "install":
 				files, e := schedule(p, path, password)
@@ -119,7 +142,7 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 			return fail(e)
 		}
 		defer release()
-		r := backend.Repository{Path: p.Repository, PasswordFile: password}
+		r := backend.Repository{Path: p.Repository, PasswordFile: password, Binary: p.Backend}
 		if e = r.Validate(ctx); e != nil {
 			return fail(e)
 		}
@@ -156,17 +179,11 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 	return 0
 }
 func systemdState(m scheduler.Manager, command scheduler.Command) (scheduler.State, error) {
-	data, e := command("systemctl", []string{"--user", "show", m.Name + ".timer", "--property=LoadState,ActiveState,UnitFileState,FragmentPath,DropInPaths"}, nil)
+	props, e := systemdProperties(m.Name+".timer", command)
 	if e != nil {
 		return scheduler.State{State: "inaccessible", Detail: e.Error()}, e
 	}
-	props := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		k, v, ok := strings.Cut(line, "=")
-		if ok {
-			props[k] = v
-		}
-	}
+
 	if props["LoadState"] == "not-found" {
 		if e := m.Owned(); errors.Is(e, os.ErrNotExist) {
 			return scheduler.State{State: "missing"}, nil
@@ -179,6 +196,13 @@ func systemdState(m scheduler.Manager, command scheduler.Command) (scheduler.Sta
 	if props["FragmentPath"] != filepath.Join(m.Dir, m.Name+".timer") || props["DropInPaths"] != "" {
 		return scheduler.State{State: "conflicting", Installed: true, Detail: "systemd loaded a different definition or override"}, errors.New("systemd definition conflict")
 	}
+	service, e := systemdProperties(m.Name+".service", command)
+	if e != nil {
+		return scheduler.State{State: "inaccessible", Installed: true, Detail: e.Error()}, e
+	}
+	if service["FragmentPath"] != filepath.Join(m.Dir, m.Name+".service") || service["DropInPaths"] != "" {
+		return scheduler.State{State: "conflicting", Installed: true, Detail: "systemd service has a different definition or override"}, errors.New("systemd service conflict")
+	}
 	enabled := props["UnitFileState"] == "enabled"
 	loaded := props["ActiveState"] == "active"
 	state := "installed"
@@ -189,4 +213,22 @@ func systemdState(m scheduler.Manager, command scheduler.Command) (scheduler.Sta
 		state = "disabled"
 	}
 	return scheduler.State{State: state, Installed: true, Enabled: &enabled, Loaded: &loaded, Detail: "user timer; active timer does not establish backup success"}, nil
+}
+
+func systemdProperties(unit string, command scheduler.Command) (map[string]string, error) {
+	data, e := command("systemctl", []string{"--user", "show", unit, "--property=LoadState,ActiveState,UnitFileState,FragmentPath,DropInPaths"}, nil)
+	if e != nil {
+		return nil, e
+	}
+	props := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if ok {
+			props[k] = v
+		}
+	}
+	if props["LoadState"] == "" {
+		return nil, errors.New("systemd returned no observed unit state")
+	}
+	return props, nil
 }

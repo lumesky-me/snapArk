@@ -2,6 +2,7 @@ package backend
 
 import (
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"path"
 	"strings"
 	"unicode"
@@ -53,7 +54,7 @@ func validateLinks(links map[string]string) error {
 // Use a stable representative of each Unicode simple-fold cycle. Lowercasing
 // alone misses aliases such as Greek final sigma and the long Latin s.
 func pathKey(p string) string {
-	return strings.Map(func(r rune) rune {
+	return norm.NFC.String(strings.Map(func(r rune) rune {
 		best := r
 		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
 			if next < best {
@@ -61,5 +62,5 @@ func pathKey(p string) string {
 			}
 		}
 		return best
-	}, p)
+	}, norm.NFC.String(p)))
 }

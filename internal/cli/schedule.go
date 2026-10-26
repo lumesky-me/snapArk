@@ -13,7 +13,10 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"context"
+	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
 )
 
@@ -74,10 +77,19 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 	if e != nil {
 		return nil, e
 	}
+	binary := p.Backend
+	if binary == "" {
+		if found, _, e := backend.Backend(context.Background(), ""); e == nil {
+			binary = found
+		}
+	}
 	argv := []string{exe, "backup", "--scheduled", "--config", store.Path, "--profile", p.Name, "--password-file", password}
+	if binary != "" {
+		argv = append(argv, "--restic", binary)
+	}
 	for _, arg := range argv {
-		if strings.ContainsAny(arg, "\x00\r\n") {
-			return nil, errors.New("scheduler paths must not contain line breaks")
+		if !utf8.ValidString(arg) || strings.ContainsAny(arg, "\x00\r\n") {
+			return nil, errors.New("scheduler paths must be valid UTF-8 without line breaks")
 		}
 	}
 	linux := []string{}
@@ -91,7 +103,7 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 	}
 	owner := scheduleOwner(p, store.Path)
 	name := "veyra-" + p.Name
-	plist, e := scheduler.LaunchDefinition("me.lumesky.veyra."+p.Name, owner, argv, hours*3600)
+	plist, e := scheduler.LaunchDefinition("me.lumesky."+nativeScheduleName(p, store.Path), owner, argv, hours*3600)
 	if e != nil {
 		return nil, e
 	}
@@ -125,4 +137,9 @@ func schedule(p config.Profile, configPath, password string) (map[string]string,
 func scheduleOwner(p config.Profile, path string) string {
 	digest := sha256.Sum256([]byte(path))
 	return p.ID + ":" + hex.EncodeToString(digest[:])
+}
+
+func nativeScheduleName(p config.Profile, path string) string {
+	digest := sha256.Sum256([]byte(path))
+	return "veyra-" + p.Name + "-" + hex.EncodeToString(digest[:6])
 }

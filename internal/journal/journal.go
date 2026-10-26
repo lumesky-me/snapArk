@@ -100,7 +100,10 @@ func (s Store) write(r Record) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(f.Name(), filepath.Join(s.Dir, r.ID+".json"))
+	if e := os.Rename(f.Name(), filepath.Join(s.Dir, r.ID+".json")); e != nil {
+		return e
+	}
+	return syncDirectory(s.Dir)
 }
 func (s Store) mutate(edit func([]Record) error) error {
 	if e := os.MkdirAll(s.Dir, 0700); e != nil {
@@ -150,6 +153,10 @@ func (s Store) Finish(r Record, outcome, category string) error {
 			return errors.New("history start record is missing")
 		}
 		now := time.Now().UTC()
+		if now.Before(r.Started) {
+			outcome = "inconclusive"
+			category = "clock_changed"
+		}
 		r.Finished = &now
 		r.Outcome = outcome
 		r.Category = category
@@ -192,7 +199,7 @@ func valid(r Record) bool {
 	case "started":
 		return r.Finished == nil
 	case "passed", "failed", "interrupted", "inconclusive":
-		return r.Finished != nil && !r.Finished.Before(r.Started)
+		return r.Finished != nil && !r.Finished.IsZero() && (!r.Finished.Before(r.Started) || r.Category == "clock_changed")
 	default:
 		return false
 	}

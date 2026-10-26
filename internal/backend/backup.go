@@ -43,6 +43,9 @@ func (r Repository) Backup(ctx context.Context, o BackupOptions) error {
 		if !info.IsDir() {
 			return fmt.Errorf("source must be a directory: %s", p)
 		}
+		if e := checkSourceTree(ctx, source); e != nil {
+			return e
+		}
 		sources = append(sources, source)
 		if Within(source, repo) || Within(repo, source) {
 			return errors.New("source and repository directories must not overlap, including through symbolic links")

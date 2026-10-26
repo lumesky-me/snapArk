@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify build checksums and execute the native archived binary."""
 import argparse
+import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -40,13 +41,14 @@ def main():
             with tarfile.open(native) as tar:
                 tar.extractall(tmp, filter="data")
         root = Path(tmp) / target
-        for name in ("LICENSE", "GO-LICENSE", "README.md", "SECURITY.md", "install-restic.py", "docs/profiles.md"):
+        for name in ("LICENSE", "THIRD-PARTY-LICENSES", "GO-LICENSE", "README.md", "SECURITY.md", "install-restic.py", "docs/profiles.md"):
             if not (root / name).is_file():
                 raise ValueError(f"missing distribution file: {name}")
         binary = root / ("veyra.exe" if system == "windows" else "veyra")
         output = subprocess.check_output([str(binary), "version"], text=True)
         if not output.startswith("veyra ") or "requires restic 0.18.1" not in output:
             raise ValueError("unexpected standalone version output")
+        script_root = Path(__file__).resolve().parent
         # Exercise the packaged executable outside the checkout, using the pinned
         # backend installed by CI. No Go command is needed by this workflow.
         work = Path(tmp)
@@ -60,7 +62,22 @@ def main():
         config = work / "settings with spaces" / "profiles.json"
         def run(*args):
             return subprocess.check_output([str(binary), *map(str, args)], cwd=work, text=True)
-        run("profile", "add", "--config", config, "--repo", repo, "--source", source, "packaged")
+        # Exercise the compiled installer itself, with explicit download approval.
+        installed = json.loads(run("setup", "--install-restic", "--dir", root, "--confirm", "--json"))
+        if not Path(installed["installed"]).is_file() or not (root / "RESTIC-0.18.1-LICENSE").is_file():
+            raise ValueError("compiled backend installation or license missing")
+        if installed["version"] != "0.18.1":
+            raise ValueError("unexpected installed backend version")
+        import sys
+        subprocess.run([sys.executable, str(script_root / "test-terminal.py"), "--binary", str(binary)],
+                       cwd=work, check=True, timeout=180)
+        for command in ("recover", "setup"):
+            result = subprocess.run([str(binary), command], cwd=work, input="", text=True,
+                                    capture_output=True, timeout=20)
+            if result.returncode != 1 or "interactive terminal" not in result.stderr:
+                raise ValueError("interactive command did not refuse background execution")
+        run("profile", "add", "--config", config, "--repo", repo, "--source", source,
+            "--restic", installed["installed"], "packaged")
         run("init", "--repo", repo, "--password-file", password)
         options = ["--config", config, "--profile", "packaged", "--password-file", password, "--json"]
         plan = json.loads(run("plan", *options))
@@ -81,7 +98,16 @@ def main():
         run("restore", *options, "--target", restored, "latest")
         if (restored / "file.txt").read_text(encoding="utf-8") != "recover packaged data":
             raise ValueError("packaged recovery contents differ")
-        print("Packaged profiles, planning, backup, status, and recovery verified outside the checkout")
+        archive = work / "history archive ü"
+        cutoff = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
+        archived = json.loads(run("history", "archive", "--config", config, "--before", cutoff,
+                                  "--to", archive, "--confirm", "--json"))
+        if archived["records"] < 1:
+            raise ValueError("packaged history archival saved no records")
+        saved = json.loads(run("history", "--archive", archive, "--json"))
+        if not any(e["kind"] == "verification" and e["outcome"] == "passed" for e in saved):
+            raise ValueError("packaged history archive did not preserve verification records")
+        print("Packaged installation, profiles, backup, recovery and history verified outside the checkout")
         print(output.strip())
         print("Archive checksums, distribution contents, and native executable verified")
 

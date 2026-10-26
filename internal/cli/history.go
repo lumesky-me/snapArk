@@ -49,28 +49,41 @@ func attachHistory(r *backend.Repository, path string, p *config.Profile) error 
 	r.AppVersion = Version
 	return nil
 }
-func (a App) history(path string, p *config.Profile, structured bool) int {
+func (a App) history(path string, p *config.Profile, structured bool, archiveDir, eventID string) int {
 	store, e := historyStore(path)
 	if e != nil {
 		fmt.Fprintln(a.Err, e)
 		return 1
 	}
 	records, e := store.Read()
+	if archiveDir != "" {
+		records, e = journal.ReadArchive(archiveDir)
+	}
 	if e != nil {
 		fmt.Fprintln(a.Err, e)
 		return 1
 	}
 	selected := []journal.Record{}
 	for _, event := range records {
-		if p == nil || event.Profile == p.ID {
+		if (p == nil || event.Profile == p.ID) && (eventID == "" || event.ID == eventID) {
 			selected = append(selected, event)
 		}
+	}
+	if eventID != "" && len(selected) == 0 {
+		fmt.Fprintln(a.Err, "history record not found")
+		return 1
 	}
 	if structured {
 		return encodeResult(a.Out, selected, a.Err)
 	}
 	for _, event := range selected {
-		fmt.Fprintf(a.Out, "%s %s %s %s repo=%s profile=%s\n", event.Started.Format("2006-01-02T15:04:05Z07:00"), event.Kind, event.Depth, event.Outcome, event.Repository, event.Profile)
+		fmt.Fprintf(a.Out, "%s %s %s %s repo=%s profile=%s id=%s snapshot=%s evidence=%q\n", event.Started.Format("2006-01-02T15:04:05Z07:00"), event.Kind, event.Depth, event.Outcome, event.Repository, event.Profile, event.ID, event.Snapshot, event.Evidence)
+		if event.Outcome == "started" {
+			fmt.Fprintln(a.Out, "  Completion was not observed. Confirm whether a process is active before retrying; never remove locks automatically.")
+		}
+		if event.Evidence != "" {
+			fmt.Fprintln(a.Out, "  Partial recovery evidence is retained. Inspect it; retry into a new destination.")
+		}
 	}
 	return 0
 }
@@ -128,7 +141,7 @@ func (r *overview) withHistory(ctx context.Context, repo backend.Repository, pat
 		return
 	}
 	if len(records) >= journal.Limit {
-		r.HistoryWarning = "history capacity reached; archive reviewed records before the next operation"
+		r.HistoryWarning = "history capacity reached; use history archive to preserve reviewed finalized records before the next operation"
 	}
 	identity, e := repo.Identity(ctx)
 	if e != nil {

@@ -59,8 +59,10 @@ local attacker racing filesystem operations under the same account.
 
 Preflight validates an authenticated streaming archive before extraction, rejecting
 traversal, absolute or escaping symlinks, nonportable names, case collisions,
-and unsupported special file types. Unicode case aliases are compared conservatively;
-filesystem-specific Unicode normalization and alias behavior are not exhaustively tested. This is deliberately conservative: a valid
+and unsupported special file types. Canonically equivalent Unicode names are
+normalized with golang.org/x/text before case-alias comparison. This conservatively
+rejects collisions even on filesystems that could keep both names. Filesystem-specific
+alias behavior is not exhaustively tested. This is deliberately conservative: a valid
 backup with such entries may require manual inspection and recovery using restic.
 Relative symlinks are interpreted inside the selected snapshot root, independent
 of macOS temporary-directory aliases. Restic performs extraction and content
@@ -76,3 +78,15 @@ Automatic source-root selection understands Unix paths and Windows drive paths
 independently of the restore host. For UNC snapshots, inspect `veyra files` and
 select an explicit `--root`. Windows symlink creation depends on OS privileges;
 junctions and other reparse-point variants are not exhaustively validated.
+
+Windows source scans refuse unsupported reparse tags before passing data to restic;
+known internal symlinks and junctions are not traversed by that scan. Explicit source
+roots still resolve to their physical locations. This metadata scan also checks
+excluded entries and can conservatively reject a source requiring manual preparation.
+Mount-point, remote-share, cloud-placeholder and long-path behavior is not universally
+certified. Keep restore parents trusted, including when using directory aliases.
+
+Interactive passwords are hidden and sent to restic through stdin, never persisted
+or placed in arguments/environment. Interactive recovery performs the same authenticated
+preflight and verified extraction as scripted restore. Neither path can guarantee
+recovery of unsupported ownership, permissions, links or metadata on another OS.

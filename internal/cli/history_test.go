@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -31,6 +30,7 @@ func TestDurableVerificationAndRecovery(t *testing.T) {
 	if e := os.WriteFile(pw, []byte("disposable-password"), 0600); e != nil {
 		t.Fatal(e)
 	}
+	privateTestCredential(t, pw)
 	invoke := func(code int, args ...string) string {
 		t.Helper()
 		var out, stderr bytes.Buffer
@@ -74,18 +74,16 @@ func TestDurableVerificationAndRecovery(t *testing.T) {
 	if !recovery {
 		t.Fatal("actual rehearsal not recorded")
 	}
-	if runtime.GOOS != "windows" {
-		offline := repo + "-offline"
-		if e := os.Rename(repo, offline); e != nil {
-			t.Fatal(e)
-		}
-		run(1, "backup", "--scheduled")
-		if e := os.Rename(offline, repo); e != nil {
-			t.Fatal(e)
-		}
-		run(0, "backup", "--scheduled")
-		run(0, "status")
+	offline := repo + "-offline"
+	if e := os.Rename(repo, offline); e != nil {
+		t.Fatal(e)
 	}
+	run(1, "backup", "--scheduled")
+	if e := os.Rename(offline, repo); e != nil {
+		t.Fatal(e)
+	}
+	run(0, "backup", "--scheduled")
+	run(0, "status")
 	oldRepo := repo + "-original"
 	if e := os.Rename(repo, oldRepo); e != nil {
 		t.Fatal(e)

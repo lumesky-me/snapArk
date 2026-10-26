@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lumesky-me/veyra/internal/backend"
@@ -24,6 +25,8 @@ const help = `VEYRA — encrypted backups and developer recovery (experimental)
 Usage: veyra COMMAND [OPTIONS] [ARGUMENTS]
 
 Commands:
+  recover       Guided recovery into a new directory
+  setup         Create a backup profile with guided installation and first backup
   test-restore  Rehearse sampled or full recovery in a private temporary directory
   history       Inspect local verification and scheduled-run records
   profile       Manage named backup profiles
@@ -41,6 +44,7 @@ Commands:
   find          Search snapshot paths by literal substring
   files         List snapshot contents
   diff          Compare two snapshots
+  inspect-restore  Explain an incomplete restore without changing it
   restore       Restore into a new directory and verify file contents
   verify        Check repository metadata (--full reads all stored data)
   stats         Inspect repository storage usage
@@ -63,8 +67,9 @@ func (s *stringsFlag) String() string     { return strings.Join(*s, ",") }
 func (s *stringsFlag) Set(v string) error { *s = append(*s, v); return nil }
 
 type App struct {
-	Out, Err io.Writer
-	In       io.Reader
+	Out, Err   io.Writer
+	In         io.Reader
+	isTerminal func() bool
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -77,6 +82,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if a.In == nil {
 		a.In = os.Stdin
 	}
+	var outputLock sync.Mutex
+	a.Out = &outputWriter{a.Out, &outputLock}
+	a.Err = &outputWriter{a.Err, &outputLock}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
 		fmt.Fprint(a.Out, help)
 		return 0
@@ -84,6 +92,15 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if args[0] == "version" {
 		fmt.Fprintf(a.Out, "veyra %s (requires restic %s)\n", Version, backend.Version)
 		return 0
+	}
+	if args[0] == "history" && len(args) > 1 && args[1] == "archive" {
+		return a.archiveHistory(ctx, args[2:])
+	}
+	if args[0] == "recover" {
+		return a.recover(ctx, args[1:])
+	}
+	if args[0] == "setup" {
+		return a.setup(ctx, args[1:])
 	}
 	if args[0] == "profile" {
 		return a.profile(ctx, args[1:])
@@ -97,7 +114,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	cmd := args[0]
 	switch cmd {
-	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore", "credentials":
+	case "init", "backup", "snapshots", "checkpoint", "checkpoints", "files", "diff", "restore", "verify", "stats", "forget", "prune", "git", "run", "plan", "doctor", "status", "retention", "schedule", "find", "history", "test-restore", "credentials", "inspect-restore":
 	default:
 		fmt.Fprintf(a.Err, "unknown command %q; use veyra help\n", cmd)
 		return 2
@@ -109,6 +126,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	r.Err = a.Err
 	fs.StringVar(&r.Path, "repo", "", "local or mounted-drive repository directory")
 	fs.StringVar(&r.PasswordFile, "password-file", "", "private password file outside backup sources")
+	fs.StringVar(&r.Binary, "restic", "", "explicit pinned restic executable")
 	fs.BoolVar(&r.JSON, "json", false, "structured JSON output")
 	fs.BoolVar(&r.Quiet, "quiet", false, "suppress normal output")
 	var profileName, configPath string
@@ -116,7 +134,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	fs.StringVar(&configPath, "config", "", "alternative profiles configuration file")
 	var selected *config.Profile
 	var exclude, include, test stringsFlag
-	var label, target, dir, restoreRoot, query, tempDir string
+	var label, target, dir, restoreRoot, query, tempDir, archiveDir, eventID string
 	var full, dry, confirm, fullGit, post, tracked, scheduled bool
 	var sampleFiles int
 	var sampleBytes int64
@@ -130,6 +148,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 		if cmd == "checkpoint" {
 			fs.BoolVar(&fullGit, "full-git", false, "include Git internals")
 		}
+	case "history":
+		fs.StringVar(&archiveDir, "archive", "", "inspect a committed history archive")
+		fs.StringVar(&eventID, "id", "", "inspect one exact history record ID")
 	case "test-restore":
 		fs.BoolVar(&full, "full", false, "authorize complete recovery rather than bounded file-content sampling")
 		fs.IntVar(&sampleFiles, "sample-files", 5, "maximum sampled files (1..32)")
@@ -137,6 +158,8 @@ func (a App) Run(ctx context.Context, args []string) int {
 		fs.StringVar(&tempDir, "temp-dir", "", "existing parent for a new private rehearsal directory")
 	case "find":
 		fs.StringVar(&query, "query", "", "literal substring to search in snapshot paths")
+	case "inspect-restore":
+		fs.StringVar(&target, "target", "", "destination of an incomplete restore")
 	case "restore":
 		fs.StringVar(&restoreRoot, "root", "", "snapshot subfolder (single-source snapshots default to their source root)")
 		fs.StringVar(&target, "target", "", "new restore directory (parent must exist)")
@@ -210,6 +233,23 @@ func (a App) Run(ctx context.Context, args []string) int {
 		}
 		return 0
 	}
+	if cmd == "inspect-restore" {
+		if e := require(0); e != nil {
+			return fail(e)
+		}
+		if target == "" {
+			return fail(errors.New("provide --target for the incomplete restore"))
+		}
+		report, e := backend.InspectRestore(target)
+		if e != nil {
+			return fail(e)
+		}
+		if r.JSON {
+			return encodeResult(out, report, a.Err)
+		}
+		fmt.Fprintf(out, "Snapshot: %s\nRepository identity: %s\nOutput: %s\n%s\n", report.Attempt.Snapshot, report.Attempt.Repository, report.Output, report.Advice)
+		return 0
+	}
 	if cmd == "credentials" {
 		if e := require(0); e != nil {
 			return fail(e)
@@ -228,7 +268,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		fmt.Fprintln(out, "Password-file permissions accepted for the current account; no permissions changed.")
 		return 0
 	}
-	if profileName != "" || r.Path == "" {
+	if profileName != "" || (r.Path == "" && cmd != "history") {
 		store, e := configStore(configPath)
 		if e != nil {
 			return fail(e)
@@ -247,6 +287,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 				return fail(errors.New("--repo cannot override a named profile"))
 			}
 			r.Path = p.Repository
+			if r.Binary == "" {
+				r.Binary = p.Backend
+			}
 			r.SnapshotTag = p.Tag() + ":complete"
 			if cmd == "checkpoint" || cmd == "checkpoints" {
 				r.SnapshotTag = p.Tag() + ":checkpoint"
@@ -255,7 +298,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 		}
 	}
 	if cmd == "history" {
-		return a.history(configPath, selected, r.JSON)
+		if e := require(0); e != nil {
+			return fail(e)
+		}
+		return a.history(configPath, selected, r.JSON, archiveDir, eventID)
 	}
 	if cmd == "verify" || cmd == "test-restore" || cmd == "run" || cmd == "doctor" || (selected != nil && (cmd == "backup" || cmd == "checkpoint")) {
 		if e := attachHistory(&r, configPath, selected); e != nil {
