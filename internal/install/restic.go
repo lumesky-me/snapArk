@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lumesky-me/veyra/internal/backend"
 	"io"
 	"net/http"
 	"os"
@@ -147,15 +148,25 @@ func place(ctx context.Context, dir string, payload []byte) (string, error) {
 		return "", e
 	}
 	c := exec.CommandContext(ctx, f.Name(), "version")
+	c.Env = backend.Environment()
 	out, e := c.Output()
 	if e != nil || !strings.HasPrefix(string(out), "restic "+Version+" ") {
 		return "", errors.New("downloaded restic executable failed its version check")
 	}
 	notice := filepath.Join(dir, "RESTIC-"+Version+"-LICENSE")
-	if existing, e := os.ReadFile(notice); e == nil {
+	if info, e := os.Lstat(notice); e == nil {
+		if !info.Mode().IsRegular() || info.Size() != int64(len(license)) {
+			return "", errors.New("existing restic license is unrelated or not a regular file; choose another directory")
+		}
+		existing, e := os.ReadFile(notice)
+		if e != nil {
+			return "", e
+		}
 		if !bytes.Equal(existing, license) {
 			return "", errors.New("existing restic license differs; choose another directory")
 		}
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return "", e
 	} else {
 		f, e := os.OpenFile(notice, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 		if e != nil {
@@ -170,10 +181,11 @@ func place(ctx context.Context, dir string, payload []byte) (string, error) {
 			return "", e
 		}
 	}
-	// Linking is an atomic no-replace publication. Unsupported filesystems fail
-	// safely with the complete temporary binary removed, never overwrite a file.
-	if e = os.Link(f.Name(), target); e != nil {
-		return "", fmt.Errorf("install without overwriting (a local filesystem supporting hard links is required): %w", e)
+	if e = ctx.Err(); e != nil {
+		return "", e
+	}
+	if e = publish(f.Name(), target); e != nil {
+		return "", fmt.Errorf("publish verified restic without replacing an existing file; choose a trusted local directory with rename support (Unix also requires hard links): %w", e)
 	}
 	return target, nil
 }
