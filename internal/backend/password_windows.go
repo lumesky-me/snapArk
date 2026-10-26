@@ -34,6 +34,9 @@ func ProtectPassword(path string) (func(), error) {
 		return nil, fmt.Errorf("unsafe unattended password file: %w", e)
 	}
 	parts := strings.Split(strings.TrimLeft(path[len(volume):], `\`), `\`)
+	if e := SafeNode(Node{Type: "file", Path: "/" + strings.Join(parts, "/")}); e != nil {
+		return nil, errors.New("credential paths must use normal Windows names without trailing dots/spaces, reserved devices or nonportable characters")
+	}
 	current := volume + `\`
 	// Pin the volume root as well as every named parent directory.
 	for i := -1; i < len(parts); i++ {

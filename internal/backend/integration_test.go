@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -382,5 +383,68 @@ func TestSourceDirectorySymlinkContents(t *testing.T) {
 	}
 	if hashFile(t, filepath.Join(target, "important")) != sha256.Sum256([]byte("follow explicit root")) {
 		t.Fatal("source alias preserved only the link instead of directory contents")
+	}
+}
+
+func TestRestoreSelectionMustMatch(t *testing.T) {
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "important.txt"), []byte("historical contents"))
+	if e := os.Mkdir(filepath.Join(src, "empty"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{src}}); e != nil {
+		t.Fatal(e)
+	}
+	for _, dry := range []bool{true, false} {
+		target := filepath.Join(filepath.Dir(src), fmt.Sprintf("missing-%v", dry))
+		e := r.Restore(ctx, RestoreOptions{Snapshot: "latest", Target: target, Include: []string{"/missing.txt"}, DryRun: dry})
+		if e == nil || !strings.Contains(e.Error(), "no snapshot entries match") {
+			t.Fatal("unmatched selection reported success", e)
+		}
+		if _, e = os.Stat(target); !os.IsNotExist(e) {
+			t.Fatal("unmatched selection created a target")
+		}
+		if _, e = os.Stat(target + ".veyra-incomplete.json"); !os.IsNotExist(e) {
+			t.Fatal("unmatched selection wrote a marker")
+		}
+	}
+	target := filepath.Join(filepath.Dir(src), "selected-empty")
+	if e := r.Restore(ctx, RestoreOptions{Snapshot: "latest", Target: target, Include: []string{"/empty"}}); e != nil {
+		t.Fatal(e)
+	}
+	if info, e := os.Stat(filepath.Join(target, "empty")); e != nil || !info.IsDir() {
+		t.Fatal("empty directory was not recovered", e)
+	}
+}
+
+func TestExactSnapshotKeepsProfileAndHostScope(t *testing.T) {
+	r, src, ctx := fixture(t)
+	mustWrite(t, filepath.Join(src, "file"), []byte("scope A"))
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{src}, Tags: []string{"scope-A"}}); e != nil {
+		t.Fatal(e)
+	}
+	first, e := r.Resolve(ctx, "latest")
+	if e != nil {
+		t.Fatal(e)
+	}
+	mustWrite(t, filepath.Join(src, "file"), []byte("scope B"))
+	if e = r.Backup(ctx, BackupOptions{Sources: []string{src}, Tags: []string{"scope-B"}}); e != nil {
+		t.Fatal(e)
+	}
+	second, e := r.Resolve(ctx, "latest")
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.SnapshotTag = "scope-A"
+	if _, e = r.Resolve(ctx, first.ID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = r.Resolve(ctx, second.ID); e == nil {
+		t.Fatal("exact ID bypassed profile scope")
+	}
+	r.SnapshotTag = ""
+	r.SnapshotHost = "another-machine"
+	if _, e = r.Resolve(ctx, first.ID); e == nil {
+		t.Fatal("exact ID bypassed host scope")
 	}
 }

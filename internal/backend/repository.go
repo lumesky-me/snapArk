@@ -200,12 +200,46 @@ var snapshotID = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // Resolve binds mutable aliases to one immutable snapshot ID before verification.
 func (r Repository) Resolve(ctx context.Context, ref string) (Snapshot, error) {
+	// Exact IDs can be authenticated directly. Listing every historical snapshot
+	// for each immutable lookup caused repeated unbounded metadata scans.
+	if snapshotID.MatchString(ref) {
+		var s Snapshot
+		if e := r.Decode(ctx, &s, "cat", "snapshot", ref); e != nil {
+			return s, e
+		}
+		s.ID = ref
+		if r.SnapshotHost != "" && s.Hostname != r.SnapshotHost {
+			return Snapshot{}, errors.New("snapshot is outside the selected host scope")
+		}
+		if r.SnapshotTag != "" {
+			found := false
+			for _, tag := range s.Tags {
+				if tag == r.SnapshotTag {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return Snapshot{}, errors.New("snapshot is outside the selected profile scope")
+			}
+		}
+		if _, e := time.Parse(time.RFC3339Nano, s.Time); e != nil {
+			return Snapshot{}, fmt.Errorf("invalid snapshot timestamp: %w", e)
+		}
+		return s, nil
+	}
 	s, err := r.Snapshots(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	var matches []Snapshot
 	for _, v := range s {
+		if !snapshotID.MatchString(v.ID) {
+			return Snapshot{}, errors.New("invalid snapshot ID in repository metadata")
+		}
+		if _, e := time.Parse(time.RFC3339Nano, v.Time); e != nil {
+			return Snapshot{}, fmt.Errorf("invalid snapshot timestamp: %w", e)
+		}
 		if ref == "latest" || (len(ref) >= 8 && strings.HasPrefix(v.ID, ref)) {
 			matches = append(matches, v)
 		}

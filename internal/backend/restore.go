@@ -207,15 +207,32 @@ func (r Repository) Restore(ctx context.Context, o RestoreOptions) error {
 		}
 		ref += ":" + root
 	}
-	if err = r.validateTree(ctx, ref); err != nil {
-		return fmt.Errorf("restore preflight: %w", err)
-	}
 	args := []string{"restore", ref, "--target", target}
 	for _, p := range o.Include {
 		if !validSelector(p) {
 			return errors.New("invalid include pattern")
 		}
 		args = append(args, "--include", p)
+	}
+	if len(o.Include) > 0 {
+		preview := r
+		preview.JSON = true
+		preview.Quiet = false
+		preview.ReadOnly = true
+		summary := &summaryWriter{}
+		preview.Out = summary
+		if err = preview.Execute(ctx, append(append([]string{}, args...), "--dry-run")...); err != nil {
+			return err
+		}
+		if !summary.Summary {
+			return errors.New("restore selection could not be confirmed; no destination was created")
+		}
+		if summary.TotalFiles == 0 {
+			return fmt.Errorf("no snapshot entries match --include within root %q; inspect files/find and use paths relative to this root", root)
+		}
+	}
+	if err = r.validateTree(ctx, ref); err != nil {
+		return fmt.Errorf("restore preflight: %w", err)
 	}
 	if o.DryRun {
 		args = append(args, "--dry-run")

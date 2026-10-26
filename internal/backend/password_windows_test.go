@@ -121,3 +121,22 @@ func TestCredentialParentJunctionRefused(t *testing.T) {
 		t.Fatal("credential parent junction accepted", e)
 	}
 }
+
+func TestCredentialWin32AliasesRefused(t *testing.T) {
+	root := t.TempDir()
+	user, e := windows.GetCurrentProcessToken().GetTokenUser()
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, name := range []string{"credential.", "credential ", "CON"} {
+		p := filepath.Join(root, name)
+		native := windowsObjectName(p)
+		if e = os.WriteFile(native, []byte("disposable private credential"), 0600); e != nil {
+			t.Fatal(e)
+		}
+		credentialACL(t, native, "D:P(A;;FA;;;"+user.User.Sid.String()+")")
+		if _, e = ProtectPassword(p); e == nil {
+			t.Fatalf("ambiguous Win32 credential path accepted: %q", p)
+		}
+	}
+}

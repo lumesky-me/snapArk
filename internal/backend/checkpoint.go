@@ -10,13 +10,15 @@ import (
 )
 
 type summaryWriter struct {
-	buf      []byte
-	ID       string
-	NewData  int
-	Files    uint64
-	Bytes    uint64
-	NewID    string
-	Progress io.Writer
+	Summary    bool
+	TotalFiles uint64
+	buf        []byte
+	ID         string
+	NewData    int
+	Files      uint64
+	Bytes      uint64
+	NewID      string
+	Progress   io.Writer
 }
 
 func (w *summaryWriter) Write(p []byte) (int, error) {
@@ -27,14 +29,15 @@ func (w *summaryWriter) Write(p []byte) (int, error) {
 			break
 		}
 		var v struct {
-			Type      string `json:"message_type"`
-			ID        string `json:"snapshot_id"`
-			NewData   int    `json:"data_blobs"`
-			Files     uint64 `json:"total_files_processed"`
-			Bytes     uint64 `json:"total_bytes_processed"`
-			NewID     string `json:"new_snapshot_id"`
-			FilesDone uint64 `json:"files_done"`
-			BytesDone uint64 `json:"bytes_done"`
+			Type       string `json:"message_type"`
+			TotalFiles uint64 `json:"total_files"`
+			ID         string `json:"snapshot_id"`
+			NewData    int    `json:"data_blobs"`
+			Files      uint64 `json:"total_files_processed"`
+			Bytes      uint64 `json:"total_bytes_processed"`
+			NewID      string `json:"new_snapshot_id"`
+			FilesDone  uint64 `json:"files_done"`
+			BytesDone  uint64 `json:"bytes_done"`
 		}
 		if err := json.Unmarshal(w.buf[:pos], &v); err != nil {
 			return 0, fmt.Errorf("invalid backup output: %w", err)
@@ -46,6 +49,8 @@ func (w *summaryWriter) Write(p []byte) (int, error) {
 			fmt.Fprintf(w.Progress, "backup: %d files, %d bytes processed\n", v.FilesDone, v.BytesDone)
 		}
 		if v.Type == "summary" {
+			w.Summary = true
+			w.TotalFiles = v.TotalFiles
 			w.ID = v.ID
 			w.NewData = v.NewData
 			w.Files = v.Files
