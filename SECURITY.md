@@ -1,92 +1,102 @@
 # Security and recovery
 
-VEYRA is experimental and has not undergone an independent security audit.
-Keep an independent backup of important data and practice restoring it.
+snapArk is a local-first backup and recovery tool built around **restic 0.18.1**. It is still undergoing release validation and **has not had an independent security audit**.
 
-## Repository protection
+> **Backups are not a substitute for a recovery plan.** Keep a separate copy of irreplaceable data, protect your repository password, and practice restoring files before you need them.
 
-Restic 0.18.1 provides encryption, authenticated storage, password derivation,
-locking, and repository integrity. Losing all passwords/keys makes recovery
-impossible. Anyone with a key can decrypt the repository. Encryption does not
-hide repository size or access patterns and does not prevent deletion by someone
-with filesystem access. Keep repository and password permissions restricted.
+## At a glance
 
-Passwords may be entered through a hidden terminal prompt or read from a private
-regular password file. VEYRA rejects symlink password files and Unix files with
-group/other permissions. For unattended Windows use, the file must be owned by
-the current account and grant access only to that account, SYSTEM, or
-Administrators. Explicit and inherited grants are inspected with Windows security
-APIs; unsupported ACEs fail closed. `veyra credentials --password-file PATH`
-checks these rules without changing permissions or reading password contents.
-Unattended credentials require a local path without reparse points, alternate
-data streams, reserved device names or trailing dots/spaces. Open handles pin its components and prevent ordinary replacement
-and writes for the duration of a scheduled run. This does not protect against
-administrators, SYSTEM, or hostile processes running as the same account.
-Password files inside a source are rejected. Inherited restic configuration is
-removed; credentials are never accepted as password command arguments.
+| Protection | What to know |
+|---|---|
+| **Encryption** | Restic encrypts and authenticates repository contents; snapArk does not implement its own encryption. |
+| **Passwords** | Enter them through a hidden terminal prompt or use a private password file for automation. |
+| **Recovery** | Restores use a new destination and verify restored contents; incomplete results are marked. |
+| **Destructive actions** | Snapshot deletion and pruning require explicit confirmation. |
+| **Limits** | Encryption cannot stop someone with filesystem access from deleting the repository, and no backup is immune to hardware failure. |
 
-Wrapped commands receive a filtered environment without restic/VEYRA variables
-or conventional token/password/secret/API-key variables. This is not a sandbox:
-commands can read accessible files, access the network, and discover other
-credentials. VEYRA executes only commands explicitly supplied by the user.
-Protection applies only to operations wrapped with `veyra run`.
+## Repository and password protection
 
-## Consistency and interrupted operations
+Restic handles **encryption, authenticated storage, password derivation, locking, and repository integrity**.
 
-Files are streamed rather than loaded in memory. Restic handles change detection
-and reports read failures; nonzero backend status is a failure, even if a partial
-snapshot exists. Backups are not atomic filesystem snapshots. Pause applications
-or use application-specific exports for databases and other live multi-file data.
-An excluded file is not protected. Git history is never changed automatically.
+- Losing every password or recovery key means **the encrypted data cannot be recovered**. Anyone with the correct key can decrypt it.
+- Encryption does **not** conceal repository size or access patterns, nor does it prevent deletion by someone who can modify repository files.
+- Restrict permissions on the repository and on any stored credentials. Keep backups on a separate device if you need protection from loss of the source disk.
 
-Restic's repository locks are retained. An interrupted process may leave a stale
-lock or unreferenced data. Do not remove locks while another client may still be
-working. Diagnose using restic's documented recovery tools after confirming all
-writers have stopped. VEYRA does not automatically unlock or repair repositories.
-A disconnected mounted drive must be remounted at the original path before retry.
+### Entering passwords safely
 
-`verify` checks repository structure and metadata; `verify --full` also reads and
-authenticates every stored data pack. The protected-command gate uses the latter.
-Failed verification blocks command execution. Pruning does not replace checking.
-Deleting a snapshot with `forget --confirm` can make it unrecoverable after prune.
+Interactive password entry is hidden. Password bytes are passed to restic through standard input, not saved by snapArk or supplied as command-line arguments or environment variables. Inherited restic configuration is removed.
+
+For unattended backups, supply a private, **regular** password file located outside every backed-up source directory. snapArk rejects symbolic-link password files and, on Unix, files accessible to the group or others (use permission mode 600).
+
+**Windows unattended credentials** must be stored locally, owned by the current user, and readable only by that user, SYSTEM, and Administrators. Both inherited and explicit access-control entries are checked. Unsupported access entries, reparse or junction/symlink paths, UNC paths, alternate data streams, reserved device names, and ambiguous trailing dots or spaces are rejected by the release-preparation checks. Open handles restrict ordinary replacement during a scheduled run, but this does not defend against administrators, SYSTEM, or malicious software with the same user's privileges.
+
+Run `snapark credentials --password-file PATH» to inspect eligibility without changing permissions or reading the password contents. **Protecting a password file used in an ordinary manual backup remains your responsibility.**
+
+## Backup consistency and interruptions
+
+snapArk streams file data rather than loading entire source trees into memory. Restic performs change detection and reports read failures.
+
+> **A backup of files changing while they are read may not represent one consistent moment.** For databases and other applications with coordinated files, pause writes or use an application-specific export or snapshot mechanism first.
+
+- Excluded files are never protected by that backup. Git history is not changed automatically.
+- A failed backend process is reported as a failure, even when it left a partial snapshot.
+- A disconnected destination drive must be mounted again at its expected path before retrying.
+- An interrupted operation can leave a repository lock or unreferenced data. **Do not delete locks while another backup may still be running.** snapArk never automatically unlocks or repairs repositories; follow restic's recovery guidance after confirming all writers have stopped.
+
+## Verification and deletion
+
+There is a difference between having a backup and knowing its data is readable.
+
+- `snapark verify» checks repository metadata and structure.
+- `snapark verify --full» also reads and authenticates every stored data pack.
+- Protected-command execution performs a full pre-operation repository check; failure blocks the command.
+
+Verification results describe checks performed at a particular time; they cannot guarantee future recoverability. Pruning is not a substitute for verification.
+
+Retention and snapshot deletion are separate from normal backups. `forget --confirm» removes snapshot references; a later `prune --confirm» can make that history permanently unrecoverable. Always preview the proposed changes first.
 
 ## Restore boundaries
 
-Targets must be new directories with existing, trusted parents. Never restore
-into an attacker-controlled directory or run restoration concurrently with an
-untrusted process able to replace its paths. VEYRA is not designed to resist a
-local attacker racing filesystem operations under the same account.
+**Restoration only targets a new directory**, beneath an existing, trusted parent. snapArk does not overwrite an existing destination.
 
-Preflight validates an authenticated streaming archive before extraction, rejecting
-traversal, absolute or escaping symlinks, nonportable names, case collisions,
-and unsupported special file types. Canonically equivalent Unicode names are
-normalized with golang.org/x/text before case-alias comparison. This conservatively
-rejects collisions even on filesystems that could keep both names. Filesystem-specific
-alias behavior is not exhaustively tested. This is deliberately conservative: a valid
-backup with such entries may require manual inspection and recovery using restic.
-Relative symlinks are interpreted inside the selected snapshot root, independent
-of macOS temporary-directory aliases. Restic performs extraction and content
-verification. Failed restore directories are retained and must not be treated
-as complete. Metadata is preserved only where the platform and privileges allow;
-ownership errors and unsupported metadata are reported as failures.
+Do not restore into an attacker-controlled parent or allow an untrusted process to change destination paths during extraction. snapArk does **not** defend against a local attacker racing filesystem operations under the same user account.
 
-Subprocess cancellation kills the process group on Unix and uses Windows taskkill
-for the process tree. Programs can deliberately detach or escape those mechanisms;
-VEYRA does not provide OS process containment. Ctrl-C cancels ongoing work.
+### What preflight checks
 
-Automatic source-root selection understands Unix paths and Windows drive paths
-independently of the restore host. For UNC snapshots, inspect `veyra files` and
-select an explicit `--root`. Windows symlink creation depends on OS privileges;
-junctions and other reparse-point variants are not exhaustively validated.
+Before extraction, snapArk authenticates the selected snapshot data and checks for:
 
-Windows source scans refuse unsupported reparse tags before passing data to restic;
-known internal symlinks and junctions are not traversed by that scan. Explicit source
-roots still resolve to their physical locations. This metadata scan also checks
-excluded entries and can conservatively reject a source requiring manual preparation.
-Mount-point, remote-share, cloud-placeholder and long-path behavior is not universally
-certified. Keep restore parents trusted, including when using directory aliases.
+- directory traversal and absolute archive members;
+- unsafe or escaping symbolic links and hard-link targets;
+- unsupported special file or archive member types;
+- names that cannot be used portably on the target filesystem; and
+- duplicate, case-colliding, or canonically equivalent Unicode paths.
 
-Interactive passwords are hidden and sent to restic through stdin, never persisted
-or placed in arguments/environment. Interactive recovery performs the same authenticated
-preflight and verified extraction as scripted restore. Neither path can guarantee
-recovery of unsupported ownership, permissions, links or metadata on another OS.
+Unicode normalization uses `golang.org/x/text» for conservative collision detection. This may reject a snapshot even when a particular filesystem could distinguish its paths. Filesystem alias behavior has **not** been exhaustively tested. Some valid-but-nonportable archives may need expert inspection and recovery with restic directly.
+
+Relative symbolic links are evaluated inside the chosen snapshot root, including on macOS systems with aliased temporary directories. Restic then extracts files and verifies their contents.
+
+**A failed or interrupted restore remains incomplete.** Its output and status marker are retained for inspection; do not treat the directory as successfully recovered.
+
+### Platform and metadata limitations
+
+- File ownership, permissions, symbolic links, and other metadata can only be restored where the operating system and the user's privileges permit. Unsupported metadata or ownership errors are reported as failures.
+- Windows symlink creation depends on privileges. Junctions and other reparse-point variants are not universally validated.
+- On Windows, source scans reject unsupported reparse tags rather than silently following them. Known internal symlinks and junctions are not traversed during those scans. Checks can also reject problematic excluded entries.
+- Unix paths and Windows drive paths are interpreted independently of the machine performing recovery. For snapshots originating on a Windows UNC path, inspect `snapark files» and supply an explicit `--root».
+- Mount points, network shares, cloud-placeholder files, long paths, and filesystem-specific aliases have not all been certified. Keep the restore parent trusted.
+
+Interactive and scripted recovery use the same authenticated preflight and verified extraction. Neither guarantees that unsupported metadata will transfer unchanged to another operating system.
+
+## Protected commands are not a sandbox
+
+When explicitly invoked through `snapark run», a command is preceded by a fully verified project checkpoint. Its environment filters inherited restic/snapArk variables and conventional password, token, secret, and API-key variables.
+
+**The executed program is not sandboxed.** It can still read accessible files, use the network, and discover other credentials. Only commands explicitly wrapped through snapArk receive this checkpoint protection. snapArk does not watch every editor or agent action, and it never automatically rolls back files.
+
+Cancellation requests terminate Unix process groups or use Windows taskkill for process trees. Processes that deliberately detach can escape those mechanisms; snapArk does not offer operating-system process containment.
+
+---
+
+**Using an existing build?** Until the executable rename is finished, substitute `veyra» for `snapark» in command examples. The underlying backup format remains restic's.
+
+For setup instructions and day-to-day use, see [Profiles and daily use](docs/profiles.md).

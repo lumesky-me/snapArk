@@ -1,175 +1,116 @@
-# VEYRA
+<div align="center">
 
-Encrypted backups, project checkpoints, and recovery tools for developers.
+<h1>snapArk</h1>
 
-VEYRA is an experimental Go CLI using restic's encrypted repository format.
-It needs no cloud service or account. Keep another backup
-of irreplaceable data. See [security and recovery](SECURITY.md) for limitations.
+**Your work has a past. Keep it.**
 
-## Features
+Encrypted backups, efficient snapshots, and reliable recovery tools for developers.
 
-- Encrypted, incremental, deduplicated directory backups to local or mounted drives.
-- Snapshot history, browsing, comparisons, integrity checks, and storage statistics.
-- Guided setup and recovery, with verified restoration into a new directory.
-- Named profiles, current-user scheduling, and verification history.
-- Checkpoints containing modified, untracked, and ignored project files.
-- Read-only Git status and protected command execution with optional tests.
-- Deletion and pruning previews; explicit confirmation is required to apply them.
+<p>
+  <img alt="Go CLI" src="https://img.shields.io/badge/Go-CLI-0A7EA3?style=flat-square">
+  <img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-supported-334155?style=flat-square">
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-64748b?style=flat-square">
+</p>
 
-## Installation
+**[Get started](#-quick-start) · [Explore features](#-what-you-can-do) · [Recovery](#-getting-your-files-back) · [Security](SECURITY.md)**
 
-Downloadable test builds are available under the **Artifacts** section of successful
-[GitHub Actions runs](https://github.com/lumesky-me/veyra/actions). These are
-experimental builds, not official releases. GitHub requires signing in to download
-artifacts. Extract the artifact wrapper, verify the platform archive against its
-`SHA256SUMS` (Linux: `sha256sum -c SHA256SUMS`; macOS:
-`shasum -a 256 -c SHA256SUMS`; Windows:
-`Get-FileHash .\veyra-windows-amd64.zip -Algorithm SHA256` and compare the hash),
-then extract the platform archive. Run `./veyra setup` (`.\veyra.exe setup` in
-PowerShell). Setup can install the pinned backend with your approval, create a
-profile, and make a verified first backup. Choose the extracted directory for the
-backend, or let the profile remember another location. No Go compiler or Python
-is needed. Add VEYRA's directory to PATH yourself if desired. Checksums detect damage; obtain them from the same
-trusted Actions run as the archive.
+</div>
 
-Archives are available for Linux x86-64/ARM64, macOS Intel/Apple silicon, and
-Windows x86-64. Filesystem permissions, links, and user-session scheduling differ
-between platforms; see the [platform limitations](SECURITY.md#restore-boundaries).
-`veyra version --json` reports the source revision, target, and Go toolchain.
+---
 
-To build from source, install Go 1.23 or later, clone this repository,
-and run these commands from the checkout:
+## 🛡️ A safety net for your files
 
-```sh
-go build -o ./bin/veyra ./cmd/veyra
-./bin/veyra setup
-```
+A refactor goes wrong. A folder disappears. You realize yesterday's code was better.
 
-Add `bin` to your PATH. On Windows, build with `-o ./bin/veyra.exe`.
-The built-in installer downloads restic **0.18.1**, checks an embedded SHA-256,
-and refuses existing executables. It never changes PATH. For scripted installation:
-`veyra setup --install-restic --dir ./bin --confirm`. The Python installer remains
-available as `python scripts/install-restic.py --dir ./bin`.
-Restic is a separate BSD-2-Clause licensed runtime dependency; VEYRA does not
-implement its encryption, chunking, or repository storage engine.
+**snapArk helps you get it back.**
 
-## Usage
+snapArk is a **local-first, open-source command-line tool** for encrypted, versioned backups. It lets you protect folders and coding projects, keep historical snapshots, and recover earlier versions without relying on a cloud account.
 
-Flags precede positional arguments. Omit `--password-file` to enter a hidden
-password once per command in a terminal. For automation, use a private password file outside all sources
-(`chmod 600` on Unix; restrict its ACL on Windows). There is no password argument.
+Unlike copying a folder over and over, snapArk uses **incremental, deduplicated backups**: data that hasn't changed can be reused across snapshots. That makes keeping a history of your work much more space-efficient than storing full copies every time.
 
-```sh
-veyra init --repo /media/backup/veyra
-veyra backup --repo /media/backup/veyra --exclude node_modules ./documents ./app
-veyra recover --repo /media/backup/veyra
-veyra snapshots --repo /media/backup/veyra
-veyra checkpoint --repo /media/backup/veyra --label before-refactor ./app
-veyra checkpoints --repo /media/backup/veyra
-veyra files --repo /media/backup/veyra latest
-veyra diff --repo /media/backup/veyra SNAPSHOT_A SNAPSHOT_B
-veyra restore --repo /media/backup/veyra --target ./recovered --include /src/main.go SNAPSHOT_ID
-veyra verify --repo /media/backup/veyra --full
-veyra stats --repo /media/backup/veyra
-veyra git --project ./app --json
-```
+## ✨ What you can do
 
-Restoring never overwrites an existing directory. A single-source snapshot
-restores its source contents directly into the target. For multiple sources,
-their absolute hierarchy is preserved; `--root /snapshot/subfolder` selects a
-subfolder. `--include` patterns are relative to the selected root. Restore
-preflight streams and authenticates the selected snapshot before extraction;
-restic then verifies restored file contents. This reads the selected data twice.
+| | Capability | What it means for you |
+|:---:|---|---|
+| 🔐 | **Encrypted backups** | Protect backup contents with a password using restic's encryption. |
+| 🕒 | **Snapshot history** | Browse previous backups and find the version you need. |
+| 📦 | **Efficient storage** | Incremental backups reuse unchanged data instead of repeatedly storing it. |
+| 🔄 | **Safe recovery** | Recover selected files, folders, or whole snapshots into a **new directory**. |
+| 🗓️ | **Automatic scheduling** | Set up recurring backups through your operating system's native scheduler. |
+| 🧩 | **Developer checkpoints** | Save project state before explicitly protected commands or risky edits. |
+| ✅ | **Verification & restore tests** | Check backup integrity and rehearse recovery instead of assuming it works. |
 
-Checkpoints exclude `.git` by default (`--full-git` includes it). Ignored files
-are **included**: use repeated `--exclude` patterns to omit build outputs or
-local secrets deliberately. VEYRA does not read or execute project configuration.
+### How snapshots work
 
-Wrap an explicit command to create and fully verify a checkpoint before it runs:
+Imagine you're building an app:
+
+| Day | What happens | Your recovery options |
+|---|---|---|
+| **Monday** | You create your first backup. | Monday's project state |
+| **Tuesday** | You change three files and back up again. | Monday or Tuesday |
+| **Wednesday** | A refactor breaks the app. | Recover Tuesday's working files |
+
+Each successful snapshot represents a point in time. **Unchanged data is shared where possible**, although new data still uses storage. Older recovery points remain available until removed by a retention or deletion operation.
+
+> **snapArk is not a continuous file watcher.** Automatic backups run on the schedule you configure, so changes made since the last successful backup may not be protected yet.
+
+## 🚀 Quick start
+
+Start with the interactive setup, which guides you through choosing your files, a backup destination, and a first verified backup.
 
 ```sh
-veyra run --repo /media/backup/veyra --project ./app --post \
-  --test-arg go --test-arg test --test-arg ./... -- gofmt -w .
+snapark setup
+snapark backup --profile my-project
+snapark recover --profile my-project
 ```
 
-Each `--test-arg` supplies one argument, including the test executable first.
-No shell parses these arguments. The command runs in the project directory.
-`--timeout 10m` limits the command and, separately, its tests. Nonzero command
-status is preserved; if the command succeeds, a failed test supplies the exit
-status. Timeout returns 124. Tests and post-checkpoints can run after command
-failure; files are never automatically reverted. Full pre-operation verification
-reads the entire repository and may take time. Excluded files are not protected.
+Use the profile name you created during setup. **The CLI rename is still in progress:** existing test builds currently use `veyra` in place of `snapark`.
 
-Use `--json` for structured results and `--quiet` to suppress normal output.
-Wrapped command output goes to stderr in JSON mode. Backend JSON formats follow
-restic 0.18.1. Use each command's `--help` for options.
+**No official release has been published yet.** For now, test builds are available from successful [GitHub Actions runs](https://github.com/lumesky-me/veyra/actions). Choose a build for your platform, verify its included checksum, extract it, and run setup. GitHub may require sign-in to download artifacts.
 
-```sh
-veyra forget --repo /media/backup/veyra SNAPSHOT_ID           # preview
-veyra forget --repo /media/backup/veyra --confirm SNAPSHOT_ID # delete snapshot
-veyra prune --repo /media/backup/veyra                       # preview
-veyra prune --repo /media/backup/veyra --confirm              # reclaim unused data
-```
+You can also build from source using **Go 1.23+**. See the [source code](https://github.com/lumesky-me/veyra) and the [daily-use guide](docs/profiles.md) for detailed workflows and configuration.
 
-## Profiles and daily backups
+## 🔄 Getting your files back
 
-```sh
-veyra profile add --repo /media/backup/app --source ./app --exclude node_modules --keep-last 10 app
-veyra plan --profile app --password-file /private/backup-password
-veyra backup --profile app --password-file /private/backup-password
-veyra status --password-file /private/backup-password
-veyra doctor --profile app --password-file /private/backup-password
-veyra find --profile app --query main.go --password-file /private/backup-password
-veyra retention --profile app --password-file /private/backup-password
-veyra schedule --profile app --password-file /private/backup-password
-```
+Backups are useful only when you can recover from them.
 
-Profiles store non-secret settings in your user configuration directory. Retention
-and scheduling are previews by default; neither runs automatically during backup.
-See [profiles and daily use](docs/profiles.md) for scope, confirmation, scheduling,
-configuration recovery, and diagnostic limitations. Protected commands can use a single-source profile with `veyra run --profile app`.
-Only included, non-excluded files are protected.
+snapArk offers **guided recovery** to help you choose a repository, browse snapshots, select files or folders, and restore them to a new location. It also supports snapshot comparison, filename search, integrity checks, and actual recovery rehearsals.
 
-## Verification and rehearsal
+Restores **do not overwrite your existing files**. If a restore fails or is interrupted, snapArk records that it was incomplete rather than treating the output as a successful recovery.
 
-```sh
-veyra verify --profile app --full --password-file /private/backup-password
-veyra history --profile app --json
-veyra test-restore --profile app --full --password-file /private/backup-password
-```
+Developer checkpoints provide a separate way to preserve project state before running a command through snapArk. They do **not** automatically intercept every edit or roll back a failed command.
 
-Checks, backup attempts, and full recovery rehearsals have separate local history.
-Status matches records to the current repository identity and snapshot scope;
-old results are not a current health guarantee. Current-user scheduling is opt-in:
-inspect `schedule preview`, then use `schedule install --confirm`. Linux uses
-systemd, Windows uses interactive Task Scheduler tasks, and macOS uses LaunchAgents.
-User-session availability matters; logged-out Windows execution is unsupported.
-See the [workflow guide](docs/profiles.md) for unattended execution, journal limits,
-private recovery directories, and current platform limitations.
+## 📅 Automatic backups, on your terms
 
-## Development
+Create a named backup profile, choose the folders to protect, and opt into a schedule:
 
-With the installed restic executable on PATH:
+- **Windows:** Task Scheduler, while the user is logged in.
+- **macOS:** LaunchAgents in a user login session.
+- **Linux:** systemd user timers.
 
-```sh
-python scripts/test_install.py
-go test -v ./...
-go test -race ./...
-go vet ./...
-go build ./cmd/veyra
-```
+Schedules require the destination to be available and properly secured credentials for unattended use. Missed backups are not guaranteed to run immediately when a computer wakes or reconnects. **Deletion, retention, and pruning aren't silently enabled** by ordinary scheduled backups.
 
-Integration tests use disposable repositories; they skip if restic is missing.
-CI installs the pinned backend and runs native Ubuntu, Windows, and macOS tests.
-Check the Actions result for the exact commit and platform you use. Benchmarks
-are available with `go test ./internal/project -run '^$' -bench .`.
+See [profiles and daily use](docs/profiles.md) for setup, scheduling, exclusions, retention, and advanced commands.
 
-Build all five distribution archives with `python scripts/build.py`; validate checksums
-and run the native archived executable with `python scripts/check-build.py`. Verification requires restic on PATH and exercises packaged profile backup/recovery.
-Each includes
-license notices and backend installation assistance; restic itself is installed
-separately. This command prepares files in `dist/` and does not publish a release.
+## 🔐 Security and reliability
+
+snapArk uses [restic](https://restic.net/) **0.18.1** for encrypted repository storage, content deduplication, and authenticated data handling. snapArk adds the developer-focused workflows around that backend; it does not invent its own encryption format.
+
+- No cloud account is required. Store repositories on a local disk or mounted drive.
+- Passwords are requested through a hidden terminal prompt or read from a suitably protected password file.
+- Destructive snapshot deletion and pruning require explicit confirmation.
+- Backup status, verification history, and restore rehearsals provide distinct signals; a recent backup alone does not guarantee recoverability.
+
+**Important:** Keep your password safe, maintain another independent copy of irreplaceable data, and test recovery. Lost passwords cannot be recovered, a disconnected drive prevents backups, and some filesystem metadata may not restore identically across operating systems.
+
+Read the [security and recovery limitations](SECURITY.md).
+
+## Documentation
+
+**[Profiles, scheduling & daily use](docs/profiles.md)** · **[Security & recovery](SECURITY.md)** · **[Builds & CI](https://github.com/lumesky-me/veyra/actions)**
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Released under the **MIT License**. See [LICENSE.md](LICENSE.md).
+
+Copyright © 2026 gagan u.

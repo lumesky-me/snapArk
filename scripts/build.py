@@ -60,8 +60,9 @@ def main():
             env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0")
             binary = stage / ("veyra.exe" if system == "windows" else "veyra")
             subprocess.run([go, "build", "-trimpath", "-buildvcs=true", "-o", str(binary), "./cmd/veyra"], cwd=ROOT, env=env, check=True)
-            for file in ("LICENSE", "THIRD-PARTY-LICENSES", "README.md", "SECURITY.md"):
+            for file in ("THIRD-PARTY-LICENSES", "README.md", "SECURITY.md"):
                 shutil.copyfile(ROOT / file, stage / file)
+            shutil.copyfile(ROOT / "LICENSE.md", stage / "LICENSE")
             shutil.copytree(ROOT / "docs", stage / "docs")
             shutil.copyfile(goroot / "LICENSE", stage / "GO-LICENSE")
             shutil.copyfile(ROOT / "scripts/install-restic.py", stage / "install-restic.py")
