@@ -177,3 +177,18 @@ func TestSystemdEditedDefinitions(t *testing.T) {
 		t.Fatal("removed edited units")
 	}
 }
+
+func TestLaunchDisabledStates(t *testing.T) {
+	for _, tc := range []struct {
+		value    string
+		disabled bool
+	}{{"true", true}, {"disabled", true}, {"false", false}, {"enabled", false}} {
+		disabled, e := launchDisabled(`disabled services = { "me.test.veyra" => `+tc.value+` }`, "me.test.veyra")
+		if e != nil || disabled != tc.disabled {
+			t.Fatal(tc, disabled, e)
+		}
+	}
+	if _, e := launchDisabled(`{"me.test.veyra" => unknown}`, "me.test.veyra"); e == nil {
+		t.Fatal("unknown disabled state guessed")
+	}
+}

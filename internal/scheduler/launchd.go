@@ -58,10 +58,23 @@ func (m LaunchManager) observed() (loaded, disabled bool, detail string, err err
 	if e != nil {
 		return loaded, false, detail, fmt.Errorf("launchd disabled state unknown: %w", e)
 	}
-	pattern := regexp.MustCompile(`"` + regexp.QuoteMeta(m.Name) + `"\s*=>\s*(true|false)`)
-	match := pattern.FindSubmatch(out)
-	disabled = len(match) > 1 && string(match[1]) == "true"
+	disabled, err = launchDisabled(string(out), m.Name)
 	return
+}
+func launchDisabled(output, name string) (bool, error) {
+	pattern := regexp.MustCompile(`"` + regexp.QuoteMeta(name) + `"\s*=>\s*([^\s,;}]+)`)
+	match := pattern.FindStringSubmatch(output)
+	if len(match) == 0 {
+		return false, nil
+	} // No override: launchd's default is enabled.
+	switch match[1] {
+	case "true", "disabled":
+		return true, nil
+	case "false", "enabled":
+		return false, nil
+	default:
+		return false, errors.New("launchd reported an unknown disabled-state value")
+	}
 }
 func (m LaunchManager) loadedOwner(detail string) error {
 	b, e := os.ReadFile(m.file())

@@ -34,7 +34,7 @@ func checkPathComponents(path string) error {
 	return nil
 }
 func checkReparse(path string) error {
-	name, e := windows.UTF16PtrFromString(path)
+	name, e := windows.UTF16PtrFromString(windowsObjectName(path))
 	if e != nil {
 		return e
 	}
@@ -85,4 +85,14 @@ func checkSourceTree(ctx context.Context, root string) error {
 		}
 		return nil
 	})
+}
+
+func windowsObjectName(path string) string {
+	if strings.HasPrefix(path, `\\?\`) {
+		return path
+	}
+	if strings.HasPrefix(path, `\\`) {
+		return `\\?\UNC\` + strings.TrimPrefix(path, `\\`)
+	}
+	return `\\?\` + path
 }

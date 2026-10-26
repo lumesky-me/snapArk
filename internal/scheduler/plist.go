@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"strconv"
+	"strings"
 )
 
 // LaunchDefinition encodes every path as XML text, never as plist markup.
@@ -12,6 +13,9 @@ func LaunchDefinition(label, owner string, argv []string, seconds int) (string, 
 	b.WriteString(xml.Header)
 	e := xml.NewEncoder(&b)
 	e.Indent("", "  ")
+	if err := e.EncodeToken(xml.Directive(`DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"`)); err != nil {
+		return "", err
+	}
 	token := func(t xml.Token) error { return e.EncodeToken(t) }
 	start := func(n string) error { return token(xml.StartElement{Name: xml.Name{Local: n}}) }
 	end := func(n string) error { return token(xml.EndElement{Name: xml.Name{Local: n}}) }
@@ -45,5 +49,7 @@ func LaunchDefinition(label, owner string, argv []string, seconds int) (string, 
 	if err := e.Flush(); err != nil {
 		return "", err
 	}
-	return b.String() + "\n", nil
+	// launchd's XPC plist parser requires the canonical empty boolean form;
+	// plutil also accepts encoding/xml's expanded <true></true> representation.
+	return strings.ReplaceAll(b.String(), "<true></true>", "<true/>") + "\n", nil
 }

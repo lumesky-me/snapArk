@@ -15,6 +15,7 @@ import (
 
 	"github.com/lumesky-me/veyra/internal/backend"
 	"github.com/lumesky-me/veyra/internal/config"
+	"github.com/lumesky-me/veyra/internal/scheduler"
 )
 
 func TestProfileWorkflow(t *testing.T) {
@@ -235,5 +236,28 @@ func TestStatusRejectsRedirectedSourceAlias(t *testing.T) {
 	}
 	if profileRootsMatch(snapshot, p) {
 		t.Fatal("old target snapshot accepted as backup of redirected source")
+	}
+}
+
+func TestSystemdStatusRejectsServiceOverrides(t *testing.T) {
+	m := scheduler.Manager{Dir: t.TempDir(), Name: "veyra-app", Owner: "profile:config", Run: func(...string) error { return nil }}
+	if e := m.Install(map[string]string{"veyra-app.service": "[Service]\n", "veyra-app.timer": "[Timer]\n"}); e != nil {
+		t.Fatal(e)
+	}
+	edited := false
+	command := func(program string, args []string, input []byte) ([]byte, error) {
+		unit := args[2]
+		drop := ""
+		if edited && strings.HasSuffix(unit, ".service") {
+			drop = "/private/user-override.conf"
+		}
+		return []byte("LoadState=loaded\nActiveState=active\nUnitFileState=enabled\nFragmentPath=" + filepath.Join(m.Dir, unit) + "\nDropInPaths=" + drop + "\n"), nil
+	}
+	if state, e := systemdState(m, command); e != nil || state.State != "enabled" {
+		t.Fatal(state, e)
+	}
+	edited = true
+	if state, e := systemdState(m, command); e == nil || state.State != "conflicting" {
+		t.Fatal("service override not observed", state, e)
 	}
 }

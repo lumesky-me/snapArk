@@ -121,6 +121,9 @@ func (a App) manageSchedule(ctx context.Context, p config.Profile, path, passwor
 			}
 		} else {
 			fmt.Fprintf(a.Out, "%s: %s\n", state.State, state.Detail)
+			if state.LastResult != nil {
+				fmt.Fprintf(a.Out, "Last scheduler result: %d; last run: %s; next run: %s\n", *state.LastResult, state.LastRun, state.NextRun)
+			}
 		}
 		if e != nil {
 			return fail(e)

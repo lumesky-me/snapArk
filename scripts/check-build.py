@@ -61,7 +61,11 @@ def main():
         repo = work / "backup with spaces"
         config = work / "settings with spaces" / "profiles.json"
         def run(*args):
-            return subprocess.check_output([str(binary), *map(str, args)], cwd=work, text=True)
+            result = subprocess.run([str(binary), *map(str, args)], cwd=work, text=True,
+                                    capture_output=True)
+            if result.returncode:
+                raise RuntimeError(f"{args[0]} failed ({result.returncode}): {result.stdout} {result.stderr}")
+            return result.stdout
         # Exercise the compiled installer itself, with explicit download approval.
         installed = json.loads(run("setup", "--install-restic", "--dir", root, "--confirm", "--json"))
         if not Path(installed["installed"]).is_file() or not (root / "RESTIC-0.18.1-LICENSE").is_file():
@@ -69,8 +73,11 @@ def main():
         if installed["version"] != "0.18.1":
             raise ValueError("unexpected installed backend version")
         import sys
-        subprocess.run([sys.executable, str(script_root / "test-terminal.py"), "--binary", str(binary)],
-                       cwd=work, check=True, timeout=180)
+        terminal = subprocess.run([sys.executable, str(script_root / "test-terminal.py"), "--binary", str(binary)],
+                                  cwd=work, capture_output=True, text=True, timeout=180)
+        if terminal.returncode:
+            raise RuntimeError("terminal workflow failed: " + terminal.stdout + terminal.stderr)
+        print(terminal.stdout, end="")
         for command in ("recover", "setup"):
             result = subprocess.run([str(binary), command], cwd=work, input="", text=True,
                                     capture_output=True, timeout=20)
@@ -113,4 +120,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        message = str(error).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print("::error::Packaged workflow failed: " + message, flush=True)
+        raise

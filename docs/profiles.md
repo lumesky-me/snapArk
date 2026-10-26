@@ -195,7 +195,11 @@ are not full-verification events. Failed authentication without a known reposito
 identity remains visible in history but is not attributed to the current repository.
 
 `--scheduled` requires an absolute private password-file path, fails promptly if
-another run owns the profile lock, and journals the attempt. It never runs retention.
+another run owns the profile lock, and journals the attempt. Failure categories
+separate credential rejection, unavailable/locked repositories, authentication,
+source read errors and competing runs without storing raw errors. Task Scheduler
+status also reports its native last result and run times; these are distinct from
+repository verification. Scheduled execution never runs retention.
 The pinned restic binary is found beside VEYRA before falling back to PATH. SIGTERM
 and Ctrl-C request cancellation; ungraceful process termination can leave a started
 record and lock for manual review. Windows unattended credentials must be local,
@@ -248,7 +252,10 @@ veyra inspect-restore --target /path/to/incomplete-recovery --json
 
 Archival defaults to passed, finalized results older than the cutoff. Review failures
 before adding `--include-failures`; unfinished `started` records always stay active.
-A new private directory receives synced, checksum-verified copies and a committed
+New Windows history directories and archives use protected ACLs granting access
+only to the current account, SYSTEM and Administrators; existing ACLs are never
+changed automatically. Keep existing configuration/history directories private.
+A new private archive receives synced, checksum-verified copies and a committed
 manifest before originals are removed under the history lock. Unix directory-sync
 failures abort before removal. Windows flushes individual files; power-loss
 durability still depends on the filesystem. An interruption can

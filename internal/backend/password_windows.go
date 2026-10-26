@@ -46,7 +46,7 @@ func ProtectPassword(path string) (func(), error) {
 			access = windows.GENERIC_READ | windows.READ_CONTROL
 			share = windows.FILE_SHARE_READ
 		}
-		name, e := windows.UTF16PtrFromString(current)
+		name, e := windows.UTF16PtrFromString(windowsObjectName(current))
 		if e != nil {
 			return fail(e)
 		}

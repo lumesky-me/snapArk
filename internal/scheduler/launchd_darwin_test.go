@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,6 +43,9 @@ func TestLaunchdNative(t *testing.T) {
 	}
 	domain := "gui/" + strconv.Itoa(os.Getuid())
 	if _, e := command("/bin/launchctl", []string{"print", domain}, nil); e != nil {
+		if os.Getenv("CI") == "true" {
+			t.Fatalf("native scheduler validation requires an accessible GUI domain: %v", e)
+		}
 		t.Skipf("no desktop user launchd domain on this runner: %v", e)
 	}
 	root := t.TempDir()
@@ -79,6 +83,13 @@ func TestLaunchdNative(t *testing.T) {
 		t.Fatal(e)
 	}
 	if s, e := m.Status(); e != nil || s.State != "disabled" {
+		if out, err := m.call("print-disabled", m.Domain); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.Contains(line, m.Name) {
+					t.Log("native disabled state:", line)
+				}
+			}
+		}
 		t.Fatal(s, e)
 	}
 	if e = m.Apply("enable", ""); e != nil {

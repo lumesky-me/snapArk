@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/lumesky-me/veyra/internal/backend"
@@ -110,6 +111,7 @@ func (a App) scheduled(ctx context.Context, r backend.Repository, p *config.Prof
 	}
 	var id string
 	release, e := backend.ProtectPassword(r.PasswordFile)
+	credentialsRejected := e != nil
 	if e == nil {
 		defer release()
 		id, e = operation()
@@ -122,6 +124,25 @@ func (a App) scheduled(ctx context.Context, r backend.Repository, p *config.Prof
 	if e != nil {
 		outcome = "failed"
 		category = "backup"
+		if credentialsRejected {
+			category = "credentials"
+		} else if errors.Is(e, journal.ErrRunBusy) {
+			category = "run_busy"
+		} else {
+			var exit *exec.ExitError
+			if errors.As(e, &exit) {
+				switch exit.ExitCode() {
+				case 3:
+					category = "source_read"
+				case 10:
+					category = "repository_unavailable"
+				case 11:
+					category = "repository_locked"
+				case 12:
+					category = "authentication"
+				}
+			}
+		}
 		if ctx.Err() != nil {
 			outcome = "interrupted"
 			category = "cancellation"

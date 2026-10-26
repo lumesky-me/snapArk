@@ -79,6 +79,20 @@ func TestDurableVerificationAndRecovery(t *testing.T) {
 		t.Fatal(e)
 	}
 	run(1, "backup", "--scheduled")
+	var unavailable []journal.Record
+	if e := json.Unmarshal([]byte(run(0, "history")), &unavailable); e != nil {
+		t.Fatal(e)
+	}
+	foundFailure := false
+	for _, event := range unavailable {
+		if event.Kind == "scheduled-run" && event.Category == "repository_unavailable" && event.Outcome == "failed" {
+			foundFailure = true
+		}
+	}
+	if !foundFailure {
+		t.Fatal("disconnected destination failure was not classified")
+	}
+
 	if e := os.Rename(offline, repo); e != nil {
 		t.Fatal(e)
 	}

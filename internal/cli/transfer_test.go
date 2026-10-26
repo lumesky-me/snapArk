@@ -23,7 +23,7 @@ func TestProfileTransferRequiresRemapping(t *testing.T) {
 		}
 		return out.String()
 	}
-	invoke(0, "profile", "add", "--config", oldCfg, "--repo", filepath.Join(root, "repo"), "--source", filepath.Join(root, "old-source"), "app")
+	invoke(0, "profile", "add", "--config", oldCfg, "--repo", filepath.Join(root, "repo"), "--source", filepath.Join(root, "old-source"), "--restic", filepath.Join(root, "old-machine-restic"), "app")
 	exported := invoke(0, "profile", "export", "--config", oldCfg, "app")
 	file := filepath.Join(root, "export.json")
 	if e := os.WriteFile(file, []byte(exported), 0600); e != nil {
@@ -47,8 +47,8 @@ func TestProfileTransferRequiresRemapping(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if p.ID == original.Profile.ID || !p.Disabled || p.Sources[0] == original.Profile.Sources[0] {
-		t.Fatal("import reused identity, enabled scheduling, or failed to remap sources")
+	if p.ID == original.Profile.ID || !p.Disabled || p.Backend != "" || p.Sources[0] == original.Profile.Sources[0] {
+		t.Fatal("import reused identity or executable path, enabled scheduling, or failed to remap sources")
 	}
 }
 

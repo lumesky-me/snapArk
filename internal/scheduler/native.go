@@ -18,11 +18,14 @@ import (
 // Command receives a program and literal argv, never a shell command line.
 type Command func(program string, args []string, input []byte) ([]byte, error)
 type State struct {
-	State     string `json:"state"`
-	Installed bool   `json:"installed"`
-	Enabled   *bool  `json:"enabled,omitempty"`
-	Loaded    *bool  `json:"loaded,omitempty"`
-	Detail    string `json:"detail,omitempty"`
+	LastResult *int64 `json:"last_native_result,omitempty"`
+	LastRun    string `json:"last_native_run,omitempty"`
+	NextRun    string `json:"next_native_run,omitempty"`
+	State      string `json:"state"`
+	Installed  bool   `json:"installed"`
+	Enabled    *bool  `json:"enabled,omitempty"`
+	Loaded     *bool  `json:"loaded,omitempty"`
+	Detail     string `json:"detail,omitempty"`
 }
 type receipt struct {
 	Version    int    `json:"version"`

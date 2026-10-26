@@ -17,6 +17,8 @@ import (
 
 const Limit = 1000
 
+var ErrRunBusy = errors.New("a VEYRA run is active or its lock needs manual review; no lock was stolen")
+
 type Record struct {
 	MetadataVerified  bool       `json:"metadata_verified"`
 	DataAuthenticated bool       `json:"all_repository_data_authenticated"`
@@ -106,7 +108,7 @@ func (s Store) write(r Record) error {
 	return syncDirectory(s.Dir)
 }
 func (s Store) mutate(edit func([]Record) error) error {
-	if e := os.MkdirAll(s.Dir, 0700); e != nil {
+	if e := s.directory(); e != nil {
 		return e
 	}
 	lock := filepath.Join(s.Dir, ".lock")
@@ -171,12 +173,15 @@ func (s Store) Acquire(key string) (func(), error) {
 	if strings.ContainsAny(key, "/\\") || key == "" || key == "." || key == ".." {
 		return nil, errors.New("invalid operation lock key")
 	}
-	if e := os.MkdirAll(s.Dir, 0700); e != nil {
+	if e := s.directory(); e != nil {
 		return nil, e
 	}
 	p := filepath.Join(s.Dir, "run-"+key+".lock")
 	if e := os.Mkdir(p, 0700); e != nil {
-		return nil, errors.New("a VEYRA run is active or its lock needs manual review; no lock was stolen")
+		if errors.Is(e, os.ErrExist) {
+			return nil, ErrRunBusy
+		}
+		return nil, fmt.Errorf("cannot create profile run lock: %w", e)
 	}
 	return func() { _ = os.Remove(p) }, nil
 }
@@ -203,4 +208,23 @@ func valid(r Record) bool {
 	default:
 		return false
 	}
+}
+
+func (s Store) directory() error {
+	if e := os.MkdirAll(filepath.Dir(s.Dir), 0700); e != nil {
+		return e
+	}
+	if e := privateDirectory(s.Dir); e != nil {
+		if !errors.Is(e, os.ErrExist) {
+			return e
+		}
+		info, err := os.Lstat(s.Dir)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("history must be a directory, not a symbolic link")
+		}
+	}
+	return nil
 }

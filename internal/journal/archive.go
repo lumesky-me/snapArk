@@ -67,7 +67,7 @@ func (s Store) archive(destination string, before time.Time, includeFailures boo
 		if len(selected) == 0 {
 			return errors.New("no eligible finalized records; active or unexplained started records are never archived")
 		}
-		if e = os.Mkdir(destination, 0700); e != nil {
+		if e = privateDirectory(destination); e != nil {
 			return fmt.Errorf("archive must be a new directory: %w", e)
 		}
 		manifest := ArchiveManifest{Version: 1, Created: time.Now().UTC(), Records: []ArchiveEntry{}}

@@ -44,7 +44,12 @@ try {
   default { throw 'Unknown task operation.' }
  }
  if ($null -eq $t) { @{ exists=$false } | ConvertTo-Json -Compress }
- else { @{ exists=$true; xml=$t.Xml; enabled=[bool]$t.Enabled; native_state=[int]$t.State } | ConvertTo-Json -Compress }
+ else {
+  $last = ''; $next = ''
+  if ($t.LastRunTime.Year -gt 1900) { $last = $t.LastRunTime.ToString('o') }
+  if ($t.NextRunTime.Year -gt 1900) { $next = $t.NextRunTime.ToString('o') }
+  @{ exists=$true; xml=$t.Xml; enabled=[bool]$t.Enabled; native_state=[int]$t.State; last_result=[long]$t.LastTaskResult; last_run=$last; next_run=$next } | ConvertTo-Json -Compress
+ }
 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
 `
 
@@ -58,6 +63,9 @@ func encodedPowerShell(script string) string {
 }
 
 type taskObservation struct {
+	LastResult  int64  `json:"last_result"`
+	LastRun     string `json:"last_run"`
+	NextRun     string `json:"next_run"`
 	Exists      bool   `json:"exists"`
 	XML         string `json:"xml"`
 	Enabled     bool   `json:"enabled"`
@@ -113,7 +121,7 @@ func (m TaskManager) Status() (State, error) {
 	if !o.Enabled {
 		state = "disabled"
 	}
-	return State{State: state, Installed: true, Enabled: &o.Enabled, Detail: fmt.Sprintf("current-user interactive task; native state %d; logged-out execution is unsupported", o.NativeState)}, nil
+	return State{State: state, Installed: true, Enabled: &o.Enabled, LastResult: &o.LastResult, LastRun: o.LastRun, NextRun: o.NextRun, Detail: fmt.Sprintf("current-user interactive task; native state %d; result code is from Task Scheduler, not a repository integrity check; logged-out execution is unsupported", o.NativeState)}, nil
 }
 func (m TaskManager) Apply(action, definition string) error {
 	release, e := m.records().lock()

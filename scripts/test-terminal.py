@@ -21,6 +21,7 @@ def drive(binary, args, answers, secret, expected_exit=0):
     index = 0
     deadline = time.monotonic() + 120
     status = None
+    reaped = False
     try:
         while time.monotonic() < deadline:
             readable, _, _ = select.select([fd], [], [], 0.25)
@@ -45,14 +46,18 @@ def drive(binary, args, answers, secret, expected_exit=0):
                             index += 1
                 else:
                     break
-            result, child_status = os.waitpid(pid, os.WNOHANG)
-            if result:
-                status = child_status
-                break
+            if not reaped:
+                result, child_status = os.waitpid(pid, os.WNOHANG)
+                if result:
+                    status = child_status
+                    reaped = True
+                    # A fast child may exit before its final terminal output is
+                    # read. Drain the PTY to EOF before assessing its report.
         if status is None:
             result, status = os.waitpid(pid, os.WNOHANG)
             if not result:
                 raise RuntimeError("interactive command did not finish before deadline")
+            reaped = True
         output = transcript.decode("utf-8", errors="replace")
         if secret in output:
             raise RuntimeError("hidden password appeared in terminal output")
@@ -61,14 +66,15 @@ def drive(binary, args, answers, secret, expected_exit=0):
         return output
     finally:
         os.close(fd)
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            pass
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+        if not reaped:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+            try:
+                os.waitpid(pid, 0)
+            except ChildProcessError:
+                pass
 
 
 def main():

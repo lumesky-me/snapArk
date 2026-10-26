@@ -2,6 +2,7 @@ package backend
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,5 +97,27 @@ func TestPasswordRejectsLinksNative(t *testing.T) {
 	}
 	if _, e := ProtectPassword(link); e == nil || !strings.Contains(e.Error(), "reparse") {
 		t.Fatalf("symlink accepted: %v", e)
+	}
+}
+
+func TestCredentialParentJunctionRefused(t *testing.T) {
+	root := t.TempDir()
+	private := filepath.Join(root, "private")
+	if e := os.Mkdir(private, 0700); e != nil {
+		t.Fatal(e)
+	}
+	password := filepath.Join(private, "password")
+	if e := os.WriteFile(password, []byte("disposable"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	user, _ := windows.GetCurrentProcessToken().GetTokenUser()
+	credentialACL(t, password, "D:P(A;;FA;;;"+user.User.Sid.String()+")")
+	alias := filepath.Join(root, "alias")
+	if out, e := exec.Command("cmd", "/c", "mklink", "/J", alias, private).CombinedOutput(); e != nil {
+		t.Fatalf("%s %v", out, e)
+	}
+	defer os.Remove(alias)
+	if _, e := ProtectPassword(filepath.Join(alias, "password")); e == nil || !strings.Contains(e.Error(), "reparse") {
+		t.Fatal("credential parent junction accepted", e)
 	}
 }
