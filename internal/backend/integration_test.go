@@ -275,6 +275,39 @@ func TestCorruptionDetected(t *testing.T) {
 	}
 }
 
+func TestMissingSnapshotDataNeverCreatesRestoreTarget(t *testing.T) {
+	r, src, ctx := fixture(t)
+	file := filepath.Join(src, "important")
+	contents := []byte("source must survive unavailable backup data")
+	mustWrite(t, file, contents)
+	if e := r.Backup(ctx, BackupOptions{Sources: []string{src}}); e != nil {
+		t.Fatal(e)
+	}
+	// Make every stored blob unavailable in this disposable repository. A damaged
+	// pack checksum alone need not prevent recovery of unaffected blob contents;
+	// whole-repository integrity is checked separately by TestCorruptionDetected.
+	if e := filepath.WalkDir(filepath.Join(r.Path, "data"), func(p string, d os.DirEntry, e error) error {
+		if e == nil && d.Type().IsRegular() {
+			return os.Remove(p)
+		}
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
+	target := filepath.Join(filepath.Dir(src), "missing-data-recovery")
+	if e := r.Restore(ctx, RestoreOptions{Snapshot: "latest", Target: target}); e == nil {
+		t.Fatal("missing snapshot data reported successful recovery")
+	}
+	for _, p := range []string{target, target + ".veyra-incomplete.json"} {
+		if _, e := os.Lstat(p); !os.IsNotExist(e) {
+			t.Fatal("missing data passed preflight and created output", p, e)
+		}
+	}
+	if hashFile(t, file) != sha256.Sum256(contents) {
+		t.Fatal("failed recovery modified the source")
+	}
+}
+
 func TestMultipleSourcesAndExclusions(t *testing.T) {
 	r, src, ctx := fixture(t)
 	other := filepath.Join(filepath.Dir(src), "other")

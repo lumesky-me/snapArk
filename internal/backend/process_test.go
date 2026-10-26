@@ -28,6 +28,10 @@ func TestMain(m *testing.M) {
 				}
 			}
 			archives := map[string][]tar.Header{
+				"archive-cycle":         {{Name: "a", Typeflag: tar.TypeSymlink, Linkname: "b"}, {Name: "b", Typeflag: tar.TypeSymlink, Linkname: "a"}},
+				"archive-special":       {{Name: "pipe", Typeflag: tar.TypeFifo}},
+				"archive-hard-escape":   {{Name: "hard", Typeflag: tar.TypeLink, Linkname: "../outside"}},
+				"archive-hard-absolute": {{Name: "hard", Typeflag: tar.TypeLink, Linkname: "/outside"}},
 				"archive-parent":        {{Name: "hard", Typeflag: tar.TypeLink, Linkname: ".."}},
 				"archive-traversal":     {{Name: "../outside", Typeflag: tar.TypeReg}},
 				"archive-absolute":      {{Name: "/outside", Typeflag: tar.TypeReg}},
@@ -39,6 +43,10 @@ func TestMain(m *testing.M) {
 				"archive-link-child":    {{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "dir"}, {Name: "link/file", Typeflag: tar.TypeReg}},
 			}
 			writer := tar.NewWriter(os.Stdout)
+			if mode == "archive-truncated" {
+				_ = writer.WriteHeader(&tar.Header{Name: "incomplete", Typeflag: tar.TypeReg, Size: 1024})
+				os.Exit(0) // Deliberately omit the file data and archive trailer.
+			}
 			for _, header := range archives[mode] {
 				if e := writer.WriteHeader(&header); e != nil {
 					os.Exit(2)
@@ -46,6 +54,9 @@ func TestMain(m *testing.M) {
 			}
 			if e := writer.Close(); e != nil {
 				os.Exit(2)
+			}
+			if mode == "archive-failed-stream" {
+				os.Exit(1) // Valid output cannot override a failed backend exit.
 			}
 			os.Exit(0)
 		}
@@ -124,16 +135,22 @@ func TestLatestUsesInstantNotTimestampText(t *testing.T) {
 }
 
 func TestUnsafeArchiveNeverCreatesTarget(t *testing.T) {
-	for _, mode := range []string{"archive-parent", "archive-traversal", "archive-absolute", "archive-chain", "archive-case", "archive-link-child", "archive-alias-child", "archive-unicode-case", "archive-unicode-child"} {
+	for _, mode := range []string{"archive-parent", "archive-traversal", "archive-absolute", "archive-chain", "archive-case", "archive-link-child", "archive-alias-child", "archive-unicode-case", "archive-unicode-child", "archive-cycle", "archive-special", "archive-hard-escape", "archive-hard-absolute", "archive-truncated", "archive-failed-stream"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			target := filepath.Join(root, "recovery")
 			r := Repository{Path: filepath.Join(root, mode), Binary: os.Args[0]}
+			if e := r.validateTree(context.Background(), strings.Repeat("a", 64)); e == nil {
+				t.Fatal("unsafe or incomplete archive passed preflight")
+			}
 			if e := r.Restore(context.Background(), RestoreOptions{Snapshot: "latest", Target: target}); e == nil {
 				t.Fatal("unsafe archive accepted")
 			}
 			if _, e := os.Stat(target); !os.IsNotExist(e) {
 				t.Fatal("unsafe archive created restore target")
+			}
+			if _, e := os.Stat(target + ".veyra-incomplete.json"); !os.IsNotExist(e) {
+				t.Fatal("failed preflight reserved a restore marker")
 			}
 		})
 	}

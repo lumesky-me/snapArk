@@ -13,9 +13,8 @@ import (
 	"github.com/lumesky-me/snapArk/internal/backend"
 )
 
-// Version can be set when preparing a later authorized release. Development
-// builds retain their explicit suffix; no date or guessed tag is substituted.
-var Version = "0.1.0-dev"
+// Version identifies the application release.
+var Version = "0.1.0"
 
 func (a App) version(args []string) int {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)

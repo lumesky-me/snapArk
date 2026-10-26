@@ -16,8 +16,8 @@ import tempfile
 from workflow_helpers import protect_windows_file
 
 ROOT = Path(__file__).resolve().parents[1]
-# The complete five-platform hardening run passed for this source revision.
-LEGACY_REVISION = '9086187c127aadb06cae3edc63526f60e6b8efc0'
+# Preserved pre-rename source tree from the successful five-platform run.
+LEGACY_REVISION = 'f8347db0f8bcbaf088903605469958e630fc0f27'
 
 
 def legacy_binary(work):
